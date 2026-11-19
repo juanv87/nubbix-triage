@@ -7,6 +7,8 @@ from openai import OpenAI
 import openai
 from google.genai import errors as genai_errors
 
+from src.schemas import LLMResult
+
 load_dotenv()
 
 client_openai = OpenAI(max_retries=2, timeout=20.0)
@@ -22,7 +24,7 @@ MODELS = {
     "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 }
 
-def call_gemini(system, user):
+def call_gemini(system, user) -> LLMResult:
     response = client_gemini.models.generate_content(
         model=MODELS["gemini"],
         contents=user,
@@ -39,15 +41,15 @@ def call_gemini(system, user):
         raise ValueError("La respuesta del modelo es nula.")
     if response.usage_metadata is None:
         raise ValueError(f"Metadata vacía en {MODELS["gemini"]}")
-    return {
-        "text": response.text,
-        "provider": "gemini",
-        "model": MODELS["gemini"],
-        "input_tokens": response.usage_metadata.prompt_token_count or 0,
-        "output_tokens": (response.usage_metadata.thoughts_token_count or 0) + (response.usage_metadata.candidates_token_count or 0),
-    }
+    return LLMResult(
+        text=response.text,
+        provider="gemini",
+        model=MODELS["gemini"],
+        input_tokens=response.usage_metadata.prompt_token_count or 0,
+        output_tokens=(response.usage_metadata.thoughts_token_count or 0) + (response.usage_metadata.candidates_token_count or 0),
+    )
 
-def call_openai(system, user):
+def call_openai(system, user) -> LLMResult:
     response = client_openai.chat.completions.create(
         model=MODELS["openai"],
         messages=[
@@ -64,19 +66,19 @@ def call_openai(system, user):
         raise ValueError("La respuesta del modelo es nula.")
     if response.usage is None:
             raise ValueError(f"Metadata vacía {MODELS["openai"]}")
-    return {
-        "text": response.choices[0].message.content,
-        "provider":"openai",
-        "model":MODELS["openai"],
-        "input_tokens":response.usage.prompt_tokens,
-        "output_tokens":response.usage.completion_tokens,
-    }
+    return LLMResult(
+        text=response.choices[0].message.content,
+        provider="openai",
+        model=MODELS["openai"],
+        input_tokens=response.usage.prompt_tokens,
+        output_tokens=response.usage.completion_tokens,
+    )
 
 
 PROVIDERS = {"openai": call_openai, "gemini": call_gemini}
 API_ERRORS = (openai.APIError, genai_errors.APIError)
 
-def call_llm(system, user):
+def call_llm(system, user) -> LLMResult:
     provider = os.getenv("LLM_PROVIDER", "openai")
     fallback_provider = os.getenv("LLM_FALLBACK_PROVIDER", "gemini")
 
