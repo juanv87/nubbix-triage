@@ -43,16 +43,28 @@ Categorías: `billing`, `technical`, `account`, `other`.
 | `OPENAI_API_KEY` | — | Key de OpenAI (la lee el SDK) |
 | `GEMINI_API_KEY` | — | Key de Gemini |
 | `LLM_PROVIDER` | `openai` | Proveedor principal (`openai` \| `gemini`) |
-| `LLM_FALLBACK_PROVIDER` | `gemini` | Proveedor de respaldo si el principal falla con error de API |
+| `LLM_FALLBACK_PROVIDER` | `gemini` | Proveedor de respaldo si el principal falla con un error transitorio (red, timeout, 408/409/429, 5xx) |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Modelo de OpenAI |
 | `GEMINI_MODEL` | `gemini-3.5-flash` | Modelo de Gemini |
+| `LLM_TIMEOUT` | `20` | Timeout por request, en segundos |
+| `LLM_HTTP_MAX_RETRIES` | `2` | Reintentos del SDK ante errores transitorios (sin contar el intento inicial) |
+| `MAX_REPAIR_ATTEMPTS` | `2` | Intentos totales cuando la respuesta no valida contra el esquema |
+| `PROMPT_VERSION` | `triage_v1` | Versión de prompt a usar (archivo de `prompts/` sin extensión) |
+
+`temperature` y `max_output_tokens` son opcionales en el YAML de cada prompt (por defecto `0` y `300`).
+
+### Prompts versionados
+
+Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombre del archivo), `fecha`, `tecnica` (zero-shot, few-shot, ...), `descripcion`, `system` y `user`. Los placeholders `{consulta}`, `{empresa}` y `{categorias}` se rellenan desde el código; las llaves literales se escriben `{{ }}`. Un prompt nunca se edita: cada cambio es un archivo nuevo y una fila en `prompts/CHANGELOG.md`.
 
 ## Estructura de directorios
 
 ```
 .
 ├── prompts/
-│   └── v1_zero_shot.yaml   # Prompt versionado (system + user_template)
+│   ├── CHANGELOG.md        # Historia de versiones de prompts
+│   ├── triage_v1.yaml      # Línea base zero-shot mínima
+│   └── triage_v2.yaml      # v1 + 3 ejemplos few-shot
 ├── src/
 │   ├── main.py             # CLI, clientes de OpenAI/Gemini, fallback entre proveedores
 │   └── prompt_loader.py    # Carga prompts YAML desde prompts/
@@ -63,9 +75,22 @@ Categorías: `billing`, `technical`, `account`, `other`.
 ## Cómo funciona
 
 1. `main.py` recibe la consulta por argumento.
-2. `load_prompt("v1_zero_shot")` carga el YAML y se inyecta el ticket en `user_template`.
-3. `call_llm` llama al proveedor principal (temperatura 0, JSON forzado, máx. 300 tokens, timeout 20 s, con reintentos). Si falla con error de API, prueba el de respaldo.
+2. `load_prompt(PROMPT_VERSION)` carga y valida el YAML; `render` inyecta ticket, empresa y categorías en `system`/`user`.
+3. `call_llm` llama al proveedor principal con JSON forzado y los parámetros del YAML. Los reintentos tienen tres capas:
+   1. **Transporte (SDK):** errores transitorios con backoff exponencial (`LLM_HTTP_MAX_RETRIES`).
+   2. **Fallback:** si el principal agota sus reintentos con un error transitorio, prueba el de respaldo. Los errores de configuración (400/401/403/404) se propagan.
+   3. **Semántica:** si el JSON no valida, se reintenta con un prompt de reparación (`MAX_REPAIR_ATTEMPTS`).
 4. El prompt trata el ticket como dato no confiable (defensa básica contra prompt injection).
+
+## Evaluación
+
+```bash
+python -m src.eval                                   # todas las versiones, split dev
+python -m src.eval --versiones triage_v1 triage_v2   # solo algunas
+python -m src.eval --split test                      # comparación final, una sola vez
+```
+
+Corre cada ticket de `data/tickets.jsonl` con el mismo `triage()` de la app e imprime accuracy por categoría y por regla de etiquetado, tokens, latencia e intentos de reparación. El detalle por caso queda en `resultados/<fecha>_<split>.jsonl`. Cada caso es una llamada real al LLM.
 
 ## Plan
 
@@ -76,7 +101,8 @@ Categorías: `billing`, `technical`, `account`, `other`.
 - [ ] Dataset de tickets de prueba y script de evaluación
 - [ ] Prompt v2 (few-shot) y comparación contra v1
 - [ ] Tests automatizados
-- [ ] Selección de prompt por CLI/variable de entorno (hoy está fijo en `v1_zero_shot`)
+- [x] Selección de prompt por variable de entorno (`PROMPT_VERSION`)
+- [ ] Selección de versión/técnica como argumento del comando
 
 ## Estado actual
 
