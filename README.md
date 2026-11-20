@@ -64,7 +64,8 @@ Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombr
 ├── prompts/
 │   ├── CHANGELOG.md        # Historia de versiones de prompts
 │   ├── triage_v1.yaml      # Línea base zero-shot mínima
-│   └── triage_v2.yaml      # v1 + 3 ejemplos few-shot
+│   ├── triage_v2.yaml      # v1 + 3 ejemplos few-shot
+│   └── triage_v3.yaml      # v2 + 1 ejemplo sacado de un error real (NX-007)
 ├── src/
 │   ├── main.py             # CLI, clientes de OpenAI/Gemini, fallback entre proveedores
 │   └── prompt_loader.py    # Carga prompts YAML desde prompts/
