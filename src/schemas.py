@@ -1,10 +1,18 @@
 from typing import Literal
 from pydantic import BaseModel, Field, ValidationError, computed_field
 
+# Single source of truth: the schema validates these keys and prompts inject them via {categorias}.
+CATEGORIES = {
+    "billing": "cobros, facturas, pagos a Nubbix, reintegros, precio de la suscripción.",
+    "technical": "errores, fallas, caídas del servicio, integraciones que fallan, lentitud.",
+    "account": "usuarios, permisos, inicio de sesión, contraseña, email de administrador, configuración de la cuenta.",
+    "other": "todo lo demás (consultas comerciales, planes, descuentos, comentarios).",
+}
+
 class TriageResponse(BaseModel):
     answer: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
-    category: Literal["billing", "technical", "account", "other"]
+    category: Literal[tuple(CATEGORIES)]
     actions: list[str]
 
 class LLMResult(BaseModel):

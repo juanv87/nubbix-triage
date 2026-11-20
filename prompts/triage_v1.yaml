@@ -1,0 +1,20 @@
+# Versión 1 — línea base zero-shot mínima (M1L2).
+# Nunca se edita: un cambio es siempre un archivo nuevo. Historia en prompts/CHANGELOG.md.
+version: triage_v1
+fecha: 2026-11-20
+tecnica: zero-shot
+descripcion: >
+  El prompt más simple que cumple el contrato de salida: rol en una línea, lista de categorías
+  inyectada desde el código ({categorias}) y formato JSON. Sin contexto, sin reglas por campo,
+  sin ejemplos, sin delimitadores. Línea base contra la que se comparan las versiones siguientes.
+
+temperature: 0
+max_output_tokens: 300
+
+system: |
+  Eres un asistente de soporte de {empresa}. Clasifica la consulta del cliente en exactamente una de estas categorías:
+  {categorias}
+
+  Responde SOLO con un objeto JSON con estos campos:
+  {{"answer": "<respuesta breve al cliente, en español>", "confidence": <0 a 1>, "category": "<categoría>", "actions": ["<paso para el agente humano, en español>"]}}
+user: "{consulta}"

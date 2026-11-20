@@ -1,25 +1,46 @@
 import yaml
 from pathlib import Path
 
-def load_prompt(prompt_name):
-    """
-    Load a prompt template from a YAML file.
+from .schemas import CATEGORIES
 
-    Args:
-        prompt_name (str): The name of the prompt template to load.
+PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+REQUIRED_FIELDS = ("version", "fecha", "tecnica", "descripcion", "system", "user")
 
-    Returns:
-        dict: The loaded prompt template.
-    """
-    with open(Path(__file__).parent.parent / "prompts" / f"{prompt_name}.yaml", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+# Injected into templates that use {empresa} (v2+ style).
+COMPANY = "Nubbix"
+
+
+def load_prompt(version: str) -> dict:
+    """Load prompts/<version>.yaml and check it has the versioned-prompt fields."""
+    path = PROMPTS_DIR / f"{version}.yaml"
+    if not path.exists():
+        available = ", ".join(p.stem for p in sorted(PROMPTS_DIR.glob("*.yaml")))
+        raise ValueError(f"Prompt '{version}' no existe. Disponibles: {available}")
+    with open(path, encoding="utf-8") as f:
+        prompt = yaml.safe_load(f)
+    missing = [k for k in REQUIRED_FIELDS if k not in prompt]
+    if missing:
+        raise ValueError(f"{path.name}: faltan campos {missing}")
+    if prompt["version"] != version:
+        raise ValueError(f"{path.name}: 'version' es {prompt['version']!r}, esperado {version!r}")
+    return prompt
+
+
+def render(prompt: dict, consulta: str) -> tuple[str, str]:
+    """Fill {empresa}, {categorias} and {consulta}; returns (system, user)."""
+    values = {
+        "empresa": COMPANY,
+        "categorias": "\n".join(f"- {k}: {v}" for k, v in CATEGORIES.items()),
+        "consulta": consulta,
+    }
+    return prompt["system"].format(**values), prompt["user"].format(**values)
+
 
 if __name__ == "__main__":
-    # Ejemplo de uso
-    # Este bloque solo corre al ejecutar el archivo directamente
-    # (python -m src.prompt_loader), no cuando otro módulo lo importa.
-    # Sirve como prueba manual: verifica que el YAML carga y que el template
-    # se rellena bien, sin llamar a ningún LLM. La query está hardcodeada a
-    # propósito; en main.py la query real viene de sys.argv[1].
-    prompt = load_prompt("v1_zero_shot")["user_template"].format(query="Hola, me cobraron dos veces la suscripción de este mes, necesito que me reintegren uno de los cargos.")
-    print(prompt)
+    # Manual check: python -m src.prompt_loader [version]. No LLM call.
+    import sys
+
+    system, user = render(load_prompt(sys.argv[1] if len(sys.argv) > 1 else "triage_v1"),
+                          "Me cobraron dos veces la suscripción, necesito el reintegro {de uno}.")
+    assert '"answer"' in system and "{de uno}" in user
+    print(system, user, sep="\n---\n")
