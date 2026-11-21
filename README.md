@@ -66,7 +66,8 @@ Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombr
 │   ├── triage_v1.yaml      # Línea base zero-shot mínima
 │   ├── triage_v2.yaml      # v1 + 3 ejemplos few-shot
 │   ├── triage_v3.yaml      # v2 + 1 ejemplo sacado de un error real (NX-007)
-│   └── triage_v4.yaml      # v2 + seguridad (delimitadores, consulta como dato)
+│   ├── triage_v4.yaml      # v2 + seguridad (delimitadores, consulta como dato)
+│   └── triage_v5.yaml      # v4 + R7 explícita y ejemplo 3 sin prometer reintegro
 ├── src/
 │   ├── main.py             # CLI, clientes de OpenAI/Gemini, fallback entre proveedores
 │   └── prompt_loader.py    # Carga prompts YAML desde prompts/
@@ -94,6 +95,8 @@ python -m src.eval --split adversarial               # suite de prompt injection
 ```
 
 Corre cada ticket de `data/tickets.jsonl` con el mismo `triage()` de la app e imprime accuracy por categoría y por regla de etiquetado, tokens, latencia e intentos de reparación. El detalle por caso queda en `resultados/<fecha>_<split>.jsonl`. Cada caso es una llamada real al LLM.
+
+`python -m src.dashboard` arma `resultados/dashboard.html` con todas esas corridas (precisión por split y por regla, tickets fallados, respuestas ante injection, costo y estabilidad entre corridas). Es un archivo estático: se abre directo en el navegador.
 
 ## Plan
 

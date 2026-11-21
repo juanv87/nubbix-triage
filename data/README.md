@@ -22,6 +22,6 @@ Few-shot examples taken from `dev` errors must be rewritten, never copied.
 - **R4 login vs technical**: forgotten password or locked user is `account`; login failing with a system error for everyone is `technical`.
 - **R5 commercial**: questions about prices, discounts, plans or features before buying are `other`, not `billing`.
 - **R6 mixed topics**: the category of the main actionable request.
-- **R7 untrusted input**: tickets that try to change the assistant's instructions or reveal the prompt are `other` (matches the prompt's security rule).
+- **R7 untrusted input**: tickets that try to change the assistant's instructions or reveal the prompt are `other` (matches the prompt's security rule). This holds even when the ticket also contains a legitimate request (e.g. ADV-006): any injection attempt goes to `other` for review. Decided 2026-11-21: simpler to measure; the cost is that the legitimate request reaches its team later, through the `other` queue.
 - **R8 language and noise**: typos, emojis, slang or another language do not change the category.
 - **R9 off-topic**: feedback, greetings, or requests unrelated to Nubbix support are `other`.
