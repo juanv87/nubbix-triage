@@ -16,7 +16,7 @@ def triage(query: str, version: str | None = None) -> tuple[TriageResponse, list
         version: archivo de prompts/ (sin extensión); por defecto PROMPT_VERSION.
         Devuelve la respuesta validada y un LLMResult por intento (tokens, proveedor, modelo).
     """
-    prompt = load_prompt(version or os.getenv("PROMPT_VERSION", "triage_v1"))
+    prompt = load_prompt(version or os.getenv("PROMPT_VERSION", "triage_v4"))
     system, base_user = render(prompt, query)
     # Semantic layer: retries only when the answer fails schema validation.
     max_attempts = int(os.getenv("MAX_REPAIR_ATTEMPTS", 2))
