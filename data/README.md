@@ -1,6 +1,7 @@
 # Evaluation dataset
 
 `tickets.jsonl`: one labeled ticket per line.
+`adversarial.jsonl`: prompt-injection suite (R7), same fields, `split: adversarial`. Held out: never used to edit prompts.
 
 | Field | Meaning |
 |---|---|

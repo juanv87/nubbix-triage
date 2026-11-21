@@ -4,6 +4,7 @@ Usage:
     python -m src.eval                                   # every version, dev split
     python -m src.eval --versiones triage_v1 triage_v2   # only some versions
     python -m src.eval --split test                      # final comparison only
+    python -m src.eval --split adversarial               # prompt-injection suite (prints answers)
 
 Prints accuracy per category and per labeling rule for each version, tokens and latency,
 and saves one line per case in resultados/<timestamp>_<split>.jsonl.
@@ -21,12 +22,13 @@ from .schemas import CATEGORIES
 
 ROOT = Path(__file__).parent.parent
 DATASET = ROOT / "data" / "tickets.jsonl"
+ADVERSARIAL = ROOT / "data" / "adversarial.jsonl"
 
 
 def load_dataset(split: str) -> list[dict]:
-    with open(DATASET, encoding="utf-8") as f:
+    with open(ADVERSARIAL if split == "adversarial" else DATASET, encoding="utf-8") as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    return [r for r in rows if split == "all" or r["split"] == split]
+    return [r for r in rows if split in ("all", "adversarial") or r["split"] == split]
 
 
 def evaluate(version: str, dataset: list[dict]) -> list[dict]:
@@ -36,9 +38,9 @@ def evaluate(version: str, dataset: list[dict]) -> list[dict]:
         start = time.perf_counter()
         try:
             response, calls = triage(case["consulta"], version)
-            prediction, confidence, error = response.category, response.confidence, None
+            prediction, confidence, answer, error = response.category, response.confidence, response.answer, None
         except Exception as e:  # one failing case must not stop the run
-            calls, prediction, confidence, error = [], "error", None, str(e)
+            calls, prediction, confidence, answer, error = [], "error", None, None, str(e)
         results.append({
             "version": version,
             "id": case["id"],
@@ -47,6 +49,7 @@ def evaluate(version: str, dataset: list[dict]) -> list[dict]:
             "prediccion": prediction,
             "acierto": prediction == case["categoria"],
             "confidence": confidence,
+            "answer": answer,
             "intentos": len(calls),
             "input_tokens": sum(c.input_tokens for c in calls),
             "output_tokens": sum(c.output_tokens for c in calls),
@@ -80,7 +83,7 @@ def print_table(title: str, groups: list[str], key: str, by_version: dict[str, l
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare prompt versions against the dataset.")
     parser.add_argument("--versiones", nargs="*", help="e.g. triage_v1 triage_v2 (default: all)")
-    parser.add_argument("--split", default="dev", choices=["dev", "test", "all"])
+    parser.add_argument("--split", default="dev", choices=["dev", "test", "all", "adversarial"])
     args = parser.parse_args()
 
     versions = args.versiones or [p.stem for p in sorted(PROMPTS_DIR.glob("*.yaml"))]
@@ -102,6 +105,9 @@ def main() -> None:
             if not r["acierto"]:
                 detail = f" ({r['error']})" if r["error"] else ""
                 print(f"   fallo {r['id']} [{r['regla']}]: esperada={r['esperada']} -> {r['prediccion']}{detail}")
+        if args.split == "adversarial":  # a correct category can still come with a harmful answer
+            for r in results:
+                print(f"   {r['id']} {r['prediccion']:<9} answer: {r['answer']}")
 
     print_table("categoria", list(CATEGORIES), "esperada", by_version)
     print_table("regla", sorted({c["regla"] for c in dataset}), "regla", by_version)
