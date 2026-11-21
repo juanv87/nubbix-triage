@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evaluación de prompts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #edf1f5;
+  --surface: #f8fafc;
+  --ink: #14213a;
+  --ink-2: #4a5870;
+  --ink-3: #66738a;
+  --rule: #cdd5e0;
+  --seq-lo: #e1e9f4;
+  --seq-hi: #1f4e99;
+  --critical: #c4262e;
+  --critical-bg: #fbe7e8;
+  --v1: #2a78d6;
+  --v2: #eb6834;
+  --v3: #1baf7a;
+  --v4: #eda100;
+  --display: "Bricolage Grotesque", "Segoe UI", sans-serif;
+  --body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f151e;
+    --surface: #17202c;
+    --ink: #e8edf4;
+    --ink-2: #b0bac9;
+    --ink-3: #8a97aa;
+    --rule: #2c3848;
+    --seq-lo: #1d2a3b;
+    --seq-hi: #5b97ec;
+    --critical: #f07070;
+    --critical-bg: #3a1c20;
+    --v1: #3987e5;
+    --v2: #d95926;
+    --v3: #199e70;
+    --v4: #c98500;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f151e;
+  --surface: #17202c;
+  --ink: #e8edf4;
+  --ink-2: #b0bac9;
+  --ink-3: #8a97aa;
+  --rule: #2c3848;
+  --seq-lo: #1d2a3b;
+  --seq-hi: #5b97ec;
+  --critical: #f07070;
+  --critical-bg: #3a1c20;
+  --v1: #3987e5;
+  --v2: #d95926;
+  --v3: #199e70;
+  --v4: #c98500;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 1rem/1.55 var(--body);
+  font-variant-numeric: tabular-nums;
+}
+main { max-width: 72rem; margin: 0 auto; padding: 3rem 1rem 5rem; }
+@media (min-width: 48rem) { main { padding: 4.5rem 2rem 6rem; } }
+
+h1, h2, h3 { font-family: var(--display); margin: 0; letter-spacing: -0.01em; }
+h1 {
+  font-size: clamp(2.4rem, 6vw, 4.2rem);
+  line-height: 1.02;
+  font-weight: 800;
+  font-stretch: 78%;
+  max-width: 16ch;
+}
+h2 { font-size: 1.6rem; line-height: 1.15; font-weight: 700; font-stretch: 85%; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; }
+.lede { margin-top: 1.1rem; max-width: 60ch; color: var(--ink-2); font-size: 1.08rem; }
+.muted { color: var(--ink-3); font-size: 0.875rem; }
+section { margin-top: 4.5rem; }
+.section-head { display: flex; flex-wrap: wrap; gap: 0.6rem 2rem; align-items: baseline; justify-content: space-between; margin-bottom: 1.25rem; }
+.section-head p { max-width: 62ch; color: var(--ink-2); margin-top: 0.35rem; }
+
+/* Version identity: swatch + name, never color alone */
+.ver { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 600; white-space: nowrap; }
+.ver::before { content: ""; width: 0.7rem; height: 0.7rem; border-radius: 3px; background: var(--c); flex: none; }
+
+/* Decision table: the one bold element */
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.decision {
+  margin-top: 2.5rem;
+  width: 100%;
+  min-width: 52rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--rule);
+}
+.decision th, .decision td { padding: 1rem 1.1rem; text-align: left; vertical-align: top; }
+.decision thead th { font-weight: 500; font-size: 0.85rem; color: var(--ink-2); border-bottom: 1px solid var(--rule); line-height: 1.3; }
+.decision tbody tr + tr td, .decision tbody tr + tr th { border-top: 1px solid var(--rule); }
+.decision tbody th { width: 15rem; }
+.decision tbody th .muted { display: block; font-weight: 400; margin-top: 0.15rem; }
+.metric { position: relative; border-radius: 10px; padding: 0.35rem 0.5rem 0.5rem; margin: -0.35rem -0.5rem -0.5rem; }
+.metric.best { box-shadow: inset 0 0 0 2px var(--ink); }
+.metric .big { font-family: var(--display); font-size: 2rem; font-weight: 700; font-stretch: 80%; line-height: 1; }
+.metric .sub { display: block; font-size: 0.8rem; color: var(--ink-3); margin-top: 0.3rem; }
+.metric .best-tag { font-size: 0.75rem; font-weight: 600; margin-left: 0.4rem; color: var(--ink); vertical-align: 0.4em; }
+.track { height: 4px; border-radius: 4px; background: var(--rule); margin-top: 0.55rem; max-width: 7rem; overflow: hidden; }
+.track > span { display: block; height: 100%; border-radius: 4px; background: var(--c); }
+.metric.bad .big { color: var(--critical); }
+.none { color: var(--ink-3); font-size: 0.9rem; }
+
+/* Split switch */
+.switch { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--rule); }
+.switch button {
+  font: 500 0.9rem var(--body); color: var(--ink-2); background: none; border: 0;
+  padding: 0.4rem 1rem; border-radius: 999px; cursor: pointer;
+}
+.switch button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+button:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--seq-hi); outline-offset: 2px; }
+
+.grid-2 { display: grid; gap: 2.5rem; }
+@media (min-width: 60rem) { .grid-2 { grid-template-columns: 1.1fr 1fr; } }
+
+/* Heatmap and case matrix */
+.matrix { border-collapse: separate; border-spacing: 2px; width: 100%; }
+.matrix th { font-weight: 500; font-size: 0.85rem; color: var(--ink-2); text-align: left; padding: 0.35rem 0.5rem; }
+.matrix thead th { text-align: center; }
+.matrix td { text-align: center; padding: 0; height: 2.6rem; border-radius: 4px; font-size: 0.875rem; font-weight: 600; }
+.heat td { background: color-mix(in oklab, var(--seq-hi) var(--p), var(--seq-lo)); color: var(--ink); }
+.heat td.dark-text { color: #fff; }
+.heat td.empty { background: none; color: var(--ink-3); font-weight: 400; }
+.cases td { background: var(--surface); box-shadow: inset 0 0 0 1px var(--rule); font-weight: 500; }
+.cases td.miss { background: var(--critical-bg); box-shadow: none; color: var(--critical); }
+.cases td.empty { background: none; box-shadow: none; color: var(--ink-3); }
+.cases th small { display: block; font-weight: 400; color: var(--ink-3); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin-top: 0.75rem; font-size: 0.8rem; color: var(--ink-3); align-items: center; }
+.ramp { display: inline-block; width: 6rem; height: 0.6rem; border-radius: 3px; background: linear-gradient(90deg, var(--seq-lo), var(--seq-hi)); vertical-align: middle; margin: 0 0.4rem; }
+
+/* Cost bars */
+.bars { display: grid; gap: 1.75rem; }
+@media (min-width: 48rem) { .bars { grid-template-columns: repeat(3, 1fr); } }
+.bar-row { display: grid; grid-template-columns: 5.5rem 1fr; align-items: center; gap: 0.6rem; margin-top: 0.55rem; font-size: 0.85rem; }
+.bar-row .bar { height: 1.15rem; display: flex; align-items: center; gap: 0.4rem; }
+.bar-row .bar > span { height: 100%; border-radius: 0 4px 4px 0; background: var(--c); min-width: 2px; }
+.bar-row .bar > em { font-style: normal; color: var(--ink-2); }
+
+/* Adversarial answers */
+.adv { display: grid; gap: 0.75rem; }
+.adv details { background: var(--surface); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--rule); }
+.adv summary { cursor: pointer; padding: 0.9rem 1.1rem; display: grid; grid-template-columns: 5rem 1fr auto; gap: 0.75rem; align-items: baseline; }
+.adv summary::-webkit-details-marker { display: none; }
+.adv summary .q { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.adv details[open] summary .q { display: block; }
+.adv .answers { display: grid; gap: 1px; background: var(--rule); border-top: 1px solid var(--rule); border-radius: 0 0 10px 10px; overflow: hidden; }
+@media (min-width: 48rem) { .adv .answers { grid-template-columns: repeat(var(--n), 1fr); } }
+.adv .answer { background: var(--surface); padding: 0.9rem 1.1rem; font-size: 0.9rem; }
+.adv .answer p { margin-top: 0.4rem; color: var(--ink-2); }
+.flag { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; font-weight: 600; color: var(--critical); background: var(--critical-bg); border-radius: 999px; padding: 0.1rem 0.55rem; white-space: nowrap; }
+.flag::before { content: "!"; display: inline-grid; place-items: center; width: 0.95rem; height: 0.95rem; border-radius: 50%; background: var(--critical); color: var(--surface); font-size: 0.65rem; }
+.pred { font-size: 0.8rem; color: var(--ink-3); }
+.pred.miss { color: var(--critical); }
+
+/* Stability */
+.stab { border-collapse: collapse; width: 100%; min-width: 34rem; }
+.stab th, .stab td { padding: 0.7rem 0.8rem; text-align: left; border-bottom: 1px solid var(--rule); font-size: 0.9rem; }
+.stab thead th { font-weight: 500; color: var(--ink-2); font-size: 0.82rem; }
+
+/* Tooltip */
+#tip {
+  position: fixed; z-index: 10; pointer-events: none; max-width: 22rem;
+  background: var(--ink); color: var(--bg); font-size: 0.8rem; line-height: 1.4;
+  padding: 0.55rem 0.7rem; border-radius: 8px; opacity: 0; transition: opacity 0.12s;
+}
+#tip.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { #tip { transition: none; } }
+footer { margin-top: 5rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>¿Qué prompt de triage pasa a producción?</h1>
+    <p class="lede" id="lede"></p>
+  </header>
+
+  <div class="scroll"><table class="decision" id="decision"></table></div>
+  <p class="muted" style="margin-top:0.75rem">El recuadro marca el mejor valor de cada columna. Cada split usa la corrida más reciente de cada versión.</p>
+
+  <section aria-labelledby="split-title">
+    <div class="section-head">
+      <div>
+        <h2 id="split-title">Dónde acierta y dónde falla</h2>
+        <p>Elegí un split para ver la precisión por regla de etiquetado, los tickets que alguna versión clasificó mal y el costo por ticket.</p>
+      </div>
+      <div class="switch" role="group" aria-label="Split" id="switch"></div>
+    </div>
+    <div class="grid-2">
+      <div>
+        <h3>Precisión por regla</h3>
+        <div class="scroll" style="margin-top:0.75rem"><table class="matrix heat" id="heat"></table></div>
+        <div class="legend"><span>0%<span class="ramp"></span>100%</span><span>Celda: aciertos sobre casos de esa regla</span></div>
+      </div>
+      <div>
+        <h3>Tickets con al menos un error</h3>
+        <div class="scroll" style="margin-top:0.75rem"><table class="matrix cases" id="cases"></table></div>
+        <div class="legend"><span>Celda: categoría predicha. En rojo, las que no coinciden con la esperada.</span></div>
+      </div>
+    </div>
+    <h3 style="margin-top:2.5rem">Costo promedio por ticket</h3>
+    <div class="bars" id="bars"></div>
+  </section>
+
+  <section aria-labelledby="adv-title" id="adv-section">
+    <div class="section-head">
+      <div>
+        <h2 id="adv-title">Respuestas ante prompt injection</h2>
+        <p>Una categoría correcta no alcanza si la respuesta promete un reintegro. Las respuestas marcadas se detectan por coincidencia de palabras: leelas antes de decidir.</p>
+      </div>
+    </div>
+    <div class="adv" id="adv"></div>
+  </section>
+
+  <section aria-labelledby="stab-title">
+    <div class="section-head">
+      <div>
+        <h2 id="stab-title">Estabilidad entre corridas de dev</h2>
+        <p>Mismo prompt, mismo dataset, temperature 0. Si la predicción de un ticket cambia entre corridas, una diferencia de un caso entre versiones puede ser ruido.</p>
+      </div>
+    </div>
+    <div class="scroll"><table class="stab" id="stab"></table></div>
+  </section>
+
+  <footer class="muted" id="foot"></footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const VERSIONS = D.versions.map(v => v.id);
+const SPLITS = ["dev", "test", "adversarial"].filter(s => D.rows.some(r => r.split === s));
+const SPLIT_NAME = { dev: "Dev", test: "Test", adversarial: "Adversarial" };
+const color = v => `var(--v${VERSIONS.indexOf(v) % 4 + 1})`;  // fixed slot per version, never by rank
+const short = v => v.replace("triage_", "");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = x => `${Math.round(x * 100)}%`;
+const mean = (rs, k) => rs.reduce((a, r) => a + r[k], 0) / rs.length;
+const current = (split, v) => D.rows.filter(r => r.vigente && r.split === split && r.version === v);
+const verTag = v => `<span class="ver" style="--c:${color(v)}">${short(v)}</span>`;
+
+/* Header */
+const runs = [...new Set(D.rows.map(r => r.run))];
+const models = [...new Set(D.rows.map(r => r.modelo).filter(Boolean))];
+document.getElementById("lede").textContent =
+  `${VERSIONS.length} versiones del prompt evaluadas en ${runs.length} corridas sobre tickets etiquetados, con ${models.join(", ")}. ` +
+  `Comparalas por precisión en cada split, por respuestas dañinas ante intentos de manipulación y por costo.`;
+document.getElementById("foot").textContent =
+  `Generado desde resultados/ (${runs.join(", ")}). Regenerar con: python -m src.dashboard`;
+
+/* Decision table */
+function decisionTable() {
+  const cols = [
+    ...SPLITS.map(s => ({ head: `Precisión ${SPLIT_NAME[s]}`, better: "high", acc: true,
+      get: v => { const rs = current(s, v); return rs.length ? { val: mean(rs, "acierto"), sub: `${rs.filter(r => r.acierto).length} de ${rs.length} tickets` } : null; } })),
+    { head: "Respuestas que prometen reintegro", better: "low", harm: true,
+      get: v => { const rs = current("adversarial", v); return rs.length ? { val: rs.filter(r => r.promete_reintegro).length, sub: `en ${rs.length} casos adversarial` } : null; } },
+    { head: "Tokens de entrada por ticket (dev)", better: "low",
+      get: v => { const rs = current("dev", v); return rs.length ? { val: mean(rs, "input_tokens"), sub: `${mean(rs, "output_tokens").toFixed(0)} de salida` } : null; } },
+    { head: "Latencia por ticket (dev)", better: "low",
+      get: v => { const rs = current("dev", v); return rs.length ? { val: mean(rs, "latencia_s"), sub: `${mean(rs, "intentos").toFixed(2)} intentos promedio` } : null; } },
+  ];
+  const cells = cols.map(c => VERSIONS.map(c.get));
+  const bests = cells.map((col, i) => {
+    const vals = col.filter(Boolean).map(x => x.val);
+    if (vals.length < 2) return null;
+    return cols[i].better === "high" ? Math.max(...vals) : Math.min(...vals);
+  });
+  const fmt = (c, x) => c.acc ? pct(x.val) : c.harm ? x.val : c.head.startsWith("Latencia") ? `${x.val.toFixed(2)} s` : Math.round(x.val);
+  const head = `<thead><tr><th scope="col">Versión</th>${cols.map(c => `<th scope="col">${c.head}</th>`).join("")}</tr></thead>`;
+  const body = VERSIONS.map((v, vi) => {
+    const meta = D.versions[vi];
+    const tds = cols.map((c, ci) => {
+      const x = cells[ci][vi];
+      if (!x) return `<td><span class="none">Sin corrida</span></td>`;
+      const best = bests[ci] !== null && Math.abs(x.val - bests[ci]) < 1e-9;
+      const bar = c.acc ? `<div class="track"><span style="width:${x.val * 100}%;--c:${color(v)}"></span></div>` : "";
+      return `<td><div class="metric${best ? " best" : ""}${c.harm && x.val > 0 ? " bad" : ""}">` +
+        `<span style="white-space:nowrap"><span class="big">${fmt(c, x)}</span>${best ? `<span class="best-tag">mejor</span>` : ""}</span>` +
+        `<span class="sub">${x.sub}</span>${bar}</div></td>`;
+    }).join("");
+    return `<tr><th scope="row">${verTag(v)}<span class="muted">${esc(meta.tecnica)}</span></th>${tds}</tr>`;
+  }).join("");
+  document.getElementById("decision").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+/* Per-split views */
+function heatmap(split) {
+  const vs = VERSIONS.filter(v => current(split, v).length);
+  const rules = [...new Set(D.rows.filter(r => r.split === split).map(r => r.regla))].sort();
+  const head = `<thead><tr><th>Regla</th>${vs.map(v => `<th>${verTag(v)}</th>`).join("")}</tr></thead>`;
+  const body = rules.map(rule => `<tr><th scope="row">${rule}</th>${vs.map(v => {
+    const rs = current(split, v).filter(r => r.regla === rule);
+    if (!rs.length) return `<td class="empty">–</td>`;
+    const ok = rs.filter(r => r.acierto).length, p = ok / rs.length;
+    const fails = rs.filter(r => !r.acierto).map(r => `${r.id} → ${r.prediccion}`).join(", ");
+    const tip = `${short(v)}, ${rule}: ${ok} de ${rs.length} (${pct(p)})${fails ? `. Falla: ${fails}` : ""}`;
+    return `<td tabindex="0" style="--p:${Math.round(p * 100)}%" class="${p > 0.55 ? "dark-text" : ""}" data-tip="${esc(tip)}">${ok}/${rs.length}</td>`;
+  }).join("")}</tr>`).join("");
+  document.getElementById("heat").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+function caseMatrix(split) {
+  const vs = VERSIONS.filter(v => current(split, v).length);
+  const byId = {};
+  vs.forEach(v => current(split, v).forEach(r => { (byId[r.id] ??= {})[v] = r; }));
+  const ids = Object.keys(byId).filter(id => Object.values(byId[id]).some(r => !r.acierto)).sort();
+  if (!ids.length) { document.getElementById("cases").innerHTML = `<tbody><tr><th>Todas las versiones aciertan todos los tickets de este split.</th></tr></tbody>`; return; }
+  const head = `<thead><tr><th>Ticket</th>${vs.map(v => `<th>${verTag(v)}</th>`).join("")}</tr></thead>`;
+  const body = ids.map(id => {
+    const any = Object.values(byId[id])[0];
+    const rowTip = `${id}: ${D.cases[id] ?? ""}`;
+    return `<tr><th scope="row" tabindex="0" data-tip="${esc(rowTip)}">${id}<small>${any.regla}, esperada ${any.esperada}</small></th>${vs.map(v => {
+      const r = byId[id][v];
+      if (!r) return `<td class="empty">–</td>`;
+      const tip = `${short(v)} predijo ${r.prediccion} con confidence ${r.confidence ?? "–"}${r.error ? `. Error: ${r.error}` : ""}`;
+      return `<td tabindex="0" class="${r.acierto ? "" : "miss"}" data-tip="${esc(tip)}">${r.acierto ? "" : "✕ "}${esc(r.prediccion)}</td>`;
+    }).join("")}</tr>`;
+  }).join("");
+  document.getElementById("cases").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+function costBars(split) {
+  const vs = VERSIONS.filter(v => current(split, v).length);
+  const metrics = [["Tokens de entrada", "input_tokens", 0], ["Tokens de salida", "output_tokens", 0], ["Latencia (s)", "latencia_s", 2]];
+  document.getElementById("bars").innerHTML = metrics.map(([label, key, dec]) => {
+    const vals = vs.map(v => mean(current(split, v), key)), max = Math.max(...vals);
+    return `<div><p class="muted">${label}</p>${vs.map((v, i) =>
+      `<div class="bar-row">${verTag(v)}<div class="bar"><span style="width:${(vals[i] / max) * 80}%;--c:${color(v)}"></span><em>${vals[i].toFixed(dec)}</em></div></div>`
+    ).join("")}</div>`;
+  }).join("");
+}
+
+function setSplit(split) {
+  document.querySelectorAll("#switch button").forEach(b => b.setAttribute("aria-pressed", b.dataset.split === split));
+  heatmap(split); caseMatrix(split); costBars(split);
+}
+
+/* Adversarial answers */
+function adversarial() {
+  const vs = VERSIONS.filter(v => current("adversarial", v).length);
+  if (!vs.length) { document.getElementById("adv-section").hidden = true; return; }
+  const ids = [...new Set(vs.flatMap(v => current("adversarial", v).map(r => r.id)))].sort();
+  document.getElementById("adv").innerHTML = ids.map(id => {
+    const rs = vs.map(v => current("adversarial", v).find(r => r.id === id));
+    const harmed = rs.filter(r => r?.promete_reintegro).length;
+    const wrong = rs.filter(r => r && !r.acierto).length;
+    const status = harmed ? `<span class="flag">${harmed} prometen reintegro</span>`
+      : `<span class="muted">${wrong ? `${wrong} de ${vs.length} mal clasificadas` : "Todas correctas"}</span>`;
+    const answers = rs.map((r, i) => r ? `<div class="answer">${verTag(vs[i])} <span class="pred${r.acierto ? "" : " miss"}">${r.acierto ? "" : "✕ "}${esc(r.prediccion)}</span>` +
+      `${r.promete_reintegro ? ` <span class="flag">Promete reintegro</span>` : ""}<p>${esc(r.answer ?? "Sin respuesta")}</p></div>` : `<div class="answer">${verTag(vs[i])}<p>Sin corrida</p></div>`).join("");
+    const exp = rs.find(Boolean);
+    return `<details${harmed || wrong ? " open" : ""}><summary><strong>${id}</strong><span class="q">${esc(D.cases[id] ?? "")}<br><span class="muted">${exp.regla}, esperada ${exp.esperada}</span></span>${status}</summary>` +
+      `<div class="answers" style="--n:${vs.length}">${answers}</div></details>`;
+  }).join("");
+}
+
+/* Stability across dev runs */
+function stability() {
+  const devRuns = [...new Set(D.rows.filter(r => r.split === "dev").map(r => r.run))];
+  const label = run => { const m = run.match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/); return m ? `${m[3]}/${m[2]} ${m[4]}:${m[5]}` : run; };
+  const head = `<thead><tr><th>Versión</th>${devRuns.map(r => `<th>Corrida ${label(r)}</th>`).join("")}<th>Tickets que cambiaron de predicción</th></tr></thead>`;
+  const body = VERSIONS.map(v => {
+    const per = devRuns.map(run => D.rows.filter(r => r.run === run && r.version === v));
+    const done = per.filter(rs => rs.length);
+    const flips = [];
+    if (done.length > 1) {
+      const ids = new Set(done.flatMap(rs => rs.map(r => r.id)));
+      ids.forEach(id => { const preds = new Set(done.map(rs => rs.find(r => r.id === id)?.prediccion).filter(Boolean)); if (preds.size > 1) flips.push(`${id} (${[...preds].join(" / ")})`); });
+    }
+    const flipCell = done.length < 2 ? `<span class="muted">Una sola corrida</span>` : flips.length ? flips.join(", ") : "Ninguno";
+    return `<tr><th scope="row">${verTag(v)}</th>${per.map(rs => `<td>${rs.length ? `${pct(mean(rs, "acierto"))} <span class="muted">(${rs.filter(r => r.acierto).length}/${rs.length})</span>` : `<span class="muted">–</span>`}</td>`).join("")}<td>${flipCell}</td></tr>`;
+  }).join("");
+  document.getElementById("stab").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+/* Tooltip for any [data-tip], on hover and keyboard focus */
+const tip = document.getElementById("tip");
+function showTip(el) {
+  tip.textContent = el.dataset.tip; tip.classList.add("on");
+  const b = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+  tip.style.left = `${Math.min(Math.max(8, b.left + b.width / 2 - t.width / 2), innerWidth - t.width - 8)}px`;
+  tip.style.top = `${b.top - t.height - 8 < 8 ? b.bottom + 8 : b.top - t.height - 8}px`;
+}
+const hideTip = () => tip.classList.remove("on");
+["mouseover", "focusin"].forEach(e => document.addEventListener(e, ev => { const el = ev.target.closest("[data-tip]"); el ? showTip(el) : hideTip(); }));
+["mouseout", "focusout"].forEach(e => document.addEventListener(e, ev => { if (ev.target.closest("[data-tip]")) hideTip(); }));
+addEventListener("scroll", hideTip, { passive: true });
+
+document.getElementById("switch").innerHTML = SPLITS.map(s => `<button type="button" data-split="${s}">${SPLIT_NAME[s]}</button>`).join("");
+document.getElementById("switch").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setSplit(b.dataset.split); });
+decisionTable(); setSplit(SPLITS[0]); adversarial(); stability();
+</script>
+</body>
+</html>
