@@ -6,7 +6,8 @@ Usage:
     python -m src.eval --split test                      # final comparison only
     python -m src.eval --split adversarial               # prompt-injection suite (prints answers)
 
-Prints accuracy per category and per labeling rule for each version, tokens and latency,
+Prints accuracy per category and per labeling rule for each version, tokens and latency
+(over answered cases; API errors such as quota limits are counted apart, marked "E"),
 and saves one line per case in resultados/<timestamp>_<split>.jsonl.
 Uses the same triage() as the app, so schema validation, repair and fallback are measured too.
 """
@@ -58,26 +59,35 @@ def evaluate(version: str, dataset: list[dict]) -> list[dict]:
             "modelo": calls[-1].model if calls else None,
             "error": error,
         })
-        print("." if results[-1]["acierto"] else "x", end="", flush=True)
+        print("E" if error else "." if results[-1]["acierto"] else "x", end="", flush=True)
     print()
     return results
 
 
+def valid(results: list[dict]) -> list[dict]:
+    """Cases the model actually answered: API errors (quota, network) say nothing about the prompt."""
+    return [r for r in results if not r["error"]]
+
+
 def accuracy(results: list[dict]) -> float:
-    return sum(r["acierto"] for r in results) / len(results) if results else 0.0
+    answered = valid(results)
+    return sum(r["acierto"] for r in answered) / len(answered) if answered else 0.0
 
 
 def print_table(title: str, groups: list[str], key: str, by_version: dict[str, list[dict]]) -> None:
-    """Rows = groups (category or rule), columns = versions."""
+    """Rows = groups (category or rule), columns = versions. Accuracy over answered cases (n)."""
     versions = list(by_version)
     print("\n" + title.ljust(14) + "".join(v.rjust(12) for v in versions))
     for g in groups:
         cells = []
         for v in versions:
             subset = [r for r in by_version[v] if r[key] == g]
-            cells.append(f"{accuracy(subset):.0%} ({len(subset)})".rjust(12) if subset else "-".rjust(12))
+            n = len(valid(subset))
+            cells.append(f"{accuracy(subset):.0%} ({n})".rjust(12) if n else "-".rjust(12))
         print(g.ljust(14) + "".join(cells))
     print("GLOBAL".ljust(14) + "".join(f"{accuracy(by_version[v]):.0%}".rjust(12) for v in versions))
+    print("errores API".ljust(14) + "".join(
+        f"{len(by_version[v]) - len(valid(by_version[v]))}".rjust(12) for v in versions))
 
 
 def main() -> None:
@@ -113,11 +123,11 @@ def main() -> None:
     print_table("regla", sorted({c["regla"] for c in dataset}), "regla", by_version)
 
     print("\n" + "costo".ljust(14) + "".join(v.rjust(12) for v in by_version))
-    n = len(dataset)
     for label, field in [("in tok/caso", "input_tokens"), ("out tok/caso", "output_tokens"),
                          ("latencia s", "latencia_s"), ("intentos", "intentos")]:
         print(label.ljust(14) + "".join(
-            f"{sum(r[field] for r in rs) / n:.1f}".rjust(12) for rs in by_version.values()))
+            f"{sum(r[field] for r in valid(rs)) / max(len(valid(rs)), 1):.1f}".rjust(12)
+            for rs in by_version.values()))
     print(f"\nDetalle guardado en {out_file.relative_to(ROOT)}")
 
 
