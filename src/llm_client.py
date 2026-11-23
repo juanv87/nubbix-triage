@@ -1,3 +1,4 @@
+import json
 import os
 
 from dotenv import load_dotenv
@@ -10,7 +11,7 @@ from google.genai import errors as genai_errors
 # installed). Pinned google-genai keeps it stable; if an upgrade removes it, list them here.
 from google.genai._api_client import _HTTPX_TRANSIENT_EXC as GEMINI_NETWORK_ERRORS
 
-from src.schemas import LLMResult
+from src.schemas import ToolResponse, TriageResponse
 
 load_dotenv()
 
@@ -33,7 +34,15 @@ MODELS = {
     "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 }
 
-def call_gemini(system, user, temperature, max_output_tokens) -> LLMResult:
+TOOL_NAME = "clasificar_consulta"
+# Single source of truth: the Pydantic contract generates the schema forced on the model.
+TOOL_SCHEMA = TriageResponse.model_json_schema()
+
+
+def ask_tool_gemini(system, user, temperature, max_output_tokens) -> ToolResponse:
+    """
+    Usa FunctionCallingConfigMode.ANY con allowed_function_names. Los args ya llegan como dict.
+    """
     response = client_gemini.models.generate_content(
         model=MODELS["gemini"],
         contents=user,
@@ -41,42 +50,68 @@ def call_gemini(system, user, temperature, max_output_tokens) -> LLMResult:
             system_instruction=system,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
-            response_mime_type="application/json"
+            tools=[types.Tool(function_declarations=[
+                types.FunctionDeclaration(
+                    name=TOOL_NAME,
+                    description="Clasifica la consulta del cliente.",
+                    parameters_json_schema=TOOL_SCHEMA,
+                )
+            ])],
+            tool_config=types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode=types.FunctionCallingConfigMode.ANY,
+                    allowed_function_names=[TOOL_NAME],
+                )
+            ),
         ),
     )
-    if response is None:
-        raise ValueError("No se recibió respuesta del modelo.")
-    if response.text is None:
-        raise ValueError("La respuesta del modelo es nula.")
-    if response.usage_metadata is None:
-        raise ValueError(f"Metadata vacía en {MODELS["gemini"]}")
-    return LLMResult(
-        text=response.text,
+    if response is None or response.usage_metadata is None:
+        raise ValueError(f"Respuesta o metadata vacía en {MODELS['gemini']}")
+    calls = response.function_calls or []
+    usage = response.usage_metadata
+    return ToolResponse(
+        # Gemini already delivers a dict; None only if no call came back.
+        args=dict(calls[0].args) if calls and calls[0].args is not None else None,
         provider="gemini",
         model=MODELS["gemini"],
-        input_tokens=response.usage_metadata.prompt_token_count or 0,
-        output_tokens=(response.usage_metadata.thoughts_token_count or 0) + (response.usage_metadata.candidates_token_count or 0),
+        input_tokens=usage.prompt_token_count or 0,
+        output_tokens=(usage.thoughts_token_count or 0) + (usage.candidates_token_count or 0),
     )
 
-def call_openai(system, user, temperature, max_output_tokens) -> LLMResult:
+
+def ask_tool_openai(system, user, temperature, max_output_tokens) -> ToolResponse:
+    """
+    Fuerza el tool_choice y hace json.loads. Si el JSON llega truncado, devuelve args=None.
+    """
     response = client_openai.chat.completions.create(
         model=MODELS["openai"],
         messages=[
             {"role": "system", "content": system},
-            {"role": "user", "content": user}
+            {"role": "user", "content": user},
         ],
         temperature=temperature,
         max_tokens=max_output_tokens,
-        response_format={"type": "json_object"}
+        tools=[{
+            "type": "function",
+            "function": {"name": TOOL_NAME, "parameters": TOOL_SCHEMA},
+        }],
+        tool_choice={"type": "function", "function": {"name": TOOL_NAME}},
     )
     if response is None or len(response.choices) == 0:
         raise ValueError("No se recibió respuesta del modelo.")
-    if response.choices[0].message.content is None:
-        raise ValueError("La respuesta del modelo es nula.")
     if response.usage is None:
-            raise ValueError(f"Metadata vacía {MODELS["openai"]}")
-    return LLMResult(
-        text=response.choices[0].message.content,
+        raise ValueError(f"Metadata vacía {MODELS['openai']}")
+    # The SDK types tool_calls as function | custom; only function calls carry `.function`.
+    tool_calls = [tc for tc in response.choices[0].message.tool_calls or [] if tc.type == "function"]
+    args = None
+    if tool_calls:
+        try:
+            # OpenAI delivers a string; it can be truncated (finish_reason="length").
+            args = json.loads(tool_calls[0].function.arguments)
+        except json.JSONDecodeError:
+            args = None
+    return ToolResponse(
+        args=args,
         provider="openai",
         model=MODELS["openai"],
         input_tokens=response.usage.prompt_tokens,
@@ -84,7 +119,7 @@ def call_openai(system, user, temperature, max_output_tokens) -> LLMResult:
     )
 
 
-PROVIDERS = {"openai": call_openai, "gemini": call_gemini}
+PROVIDERS = {"openai": ask_tool_openai, "gemini": ask_tool_gemini}
 # Gemini network errors surface as raw httpx exceptions once its retries run out.
 API_ERRORS = (openai.APIError, genai_errors.APIError, *GEMINI_NETWORK_ERRORS)
 TRANSIENT_STATUS = {408, 409, 429}
@@ -100,22 +135,22 @@ def is_transient(e: Exception) -> bool:
     return isinstance(status, int) and (status in TRANSIENT_STATUS or status >= 500)
 
 
-def call_llm(system, user, temperature, max_output_tokens) -> LLMResult:
+def ask_tool(system, user, temperature, max_output_tokens) -> ToolResponse:
+    """Forces the TriageResponse tool call; .args is a normalized dict (or None if parsing failed)."""
     provider = os.getenv("LLM_PROVIDER", "openai")
     fallback_provider = os.getenv("LLM_FALLBACK_PROVIDER", "gemini")
 
     if provider not in PROVIDERS or fallback_provider not in PROVIDERS:
         raise ValueError(f"El provedor asignado no existe. Opciones válidas: {", ".join(PROVIDERS)}.")
     try:
-        result = PROVIDERS[provider](system, user, temperature, max_output_tokens)
-        return result
+        return PROVIDERS[provider](system, user, temperature, max_output_tokens)
     except API_ERRORS as e:
         if not is_transient(e):
             raise
         print(f"Error en el llamado a la API de {provider}. {e}")
         try:
             print(f"Probando con {fallback_provider}: \n")
-            result = PROVIDERS[fallback_provider](system, user, temperature, max_output_tokens)
-            return result
+            return PROVIDERS[fallback_provider](system, user, temperature, max_output_tokens)
         except API_ERRORS as e:
             raise RuntimeError(f"Todos los provedores fallaron. {e}") from e
+

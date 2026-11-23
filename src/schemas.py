@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, Field, ValidationError, computed_field
+from pydantic import BaseModel, Field, ValidationError
 
 # Single source of truth: the schema validates these keys and prompts inject them via {categorias}.
 CATEGORIES = {
@@ -15,16 +15,13 @@ class TriageResponse(BaseModel):
     category: Literal[tuple(CATEGORIES)]
     actions: list[str]
 
-class LLMResult(BaseModel):
-    text: str
+class ToolResponse(BaseModel):
+    # args is None when the provider's arguments could not be parsed (e.g. truncated JSON).
+    args: dict | None
     provider: Literal["openai", "gemini"]
     model: str
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
-    @computed_field
-    @property
-    def total_tokens(self) -> int:
-        return self.input_tokens + self.output_tokens
 
 if __name__ == "__main__":
     # Ejemplo de uso
