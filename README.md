@@ -47,6 +47,7 @@ Categorías: `billing`, `technical`, `account`, `other` (definidas en `CATEGORIE
 | `LLM_TIMEOUT` | `20` | Timeout por request, en segundos |
 | `LLM_HTTP_MAX_RETRIES` | `2` | Reintentos del SDK ante errores transitorios (sin contar el intento inicial) |
 | `MAX_REPAIR_ATTEMPTS` | `2` | Intentos totales cuando la tool call no valida contra el esquema o llega vacía/truncada |
+| `MODERATION_PROVIDER` | `openai` | Moderación de la entrada (`openai` \| `mock` \| `off`). Si el clasificador falla, el ticket se marca `flag` (fail-closed), nunca se permite |
 | `PROMPT_VERSION` | `triage_v4` | Versión de prompt a usar (archivo de `prompts/` sin extensión). `triage_v4` es la elegida por datos; ver `prompts/CHANGELOG.md` |
 
 `temperature` y `max_output_tokens` son opcionales en el YAML de cada prompt (por defecto `0` y `300`).

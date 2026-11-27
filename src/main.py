@@ -3,9 +3,10 @@ import os
 from dotenv import load_dotenv
 from pydantic import ValidationError
 from .llm_client import ask_tool
-from .prompt_loader import load_prompt, render
+from .prompt_loader import load_prompt, render, sanitize
 from .schemas import ToolResponse, TriageResponse
 from .guardrails import CONTROL, check_output, error_summary, safe_response
+from .moderation import moderate
 
 load_dotenv()
 class TriageError(Exception):
@@ -24,6 +25,11 @@ def triage(query: str, version: str | None = None) -> tuple[TriageResponse, list
     if CONTROL.search(query):
         print("Entrada bloqueada por la compuerta: intento-de-inyeccion")
         return safe_response("intento-de-inyeccion"), []
+    action, reasons, _ = moderate(sanitize(query))
+    codes = ",".join(r["code"] for r in reasons)
+    if action == "block":
+        print(f"Entrada bloqueada por moderación: {codes}")
+        return safe_response("moderacion: " + codes), []
     system, base_user = render(prompt, query)
     # Semantic layer: retries only when the answer fails schema validation.
     max_attempts = int(os.getenv("MAX_REPAIR_ATTEMPTS", 2))
@@ -49,7 +55,10 @@ def triage(query: str, version: str | None = None) -> tuple[TriageResponse, list
             reason = check_output(result, system)
             if reason:
                 print(f"Salida bloqueada por la compuerta: {reason}")
-                result = safe_response(reason) 
+                result = safe_response(reason)
+            if action == "flag":
+                # Added after the output gate: our own text must not pass through it.
+                result.actions.append(f"Revisión humana: contenido dudoso ({codes})")
             return result, calls
         
         except (ValidationError, ValueError) as e:
