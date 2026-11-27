@@ -1,6 +1,8 @@
 from .schemas import TriageResponse
 from pydantic import ValidationError
 import re
+import yaml
+from pathlib import Path
 
 PROMISE = re.compile(
     r"(reintegro|reembolso|devoluci[oó]n|refund)\s+(\S+\s+){0,3}?(ya\s+)?(fue|est[aá]|ha\s+sido|was|has\s+been)\s+(aprobad|confirmad|acreditad|approved)"    r"|\d{1,3}\s*%\s*(de\s+)?(descuento|reintegro|reembolso)"
@@ -60,6 +62,41 @@ def error_summary(e: Exception) -> str:
         return "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors())
     return str(e)
 
+THRESHOLDS_PATH = Path(__file__).parent.parent / "config" / "moderation.yaml"
+_RANK = {"allow": 0, "flag": 1, "block": 2}
+_SEVERITY = {"allow": "low", "flag": "medium", "block": "high"}
+
+def load_thresholds(path=THRESHOLDS_PATH) -> dict:
+    """Load config/moderation.yaml and fail fast if it is malformed."""
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    if not isinstance(cfg, dict) or "version" not in cfg or "thresholds" not in cfg:
+        raise ValueError(f"{path}: faltan 'version' o 'thresholds'")
+    th = cfg["thresholds"]
+    if not isinstance(th, dict) or "default" not in th:
+        raise ValueError(f"{path}: 'thresholds' debe tener 'default'")
+    for cat, t in th.items():
+        ok = isinstance(t, dict) and all(
+            isinstance(t.get(k), (int, float)) and not isinstance(t.get(k), bool) for k in ("allow", "block")
+        )
+        if not ok:
+            raise ValueError(f"{path}: '{cat}' necesita 'allow' y 'block' numéricos")
+        if not 0 <= t["allow"] <= t["block"] <= 1:
+            raise ValueError(f"{path}: '{cat}' debe cumplir 0 <= allow <= block <= 1")
+    return cfg
+
+def decide(scores: dict[str, float], thresholds: dict) -> tuple[str, list[dict], str]:
+    """Pure: (action, reasons, severity) from per-category scores. Worst category wins."""
+    action, reasons = "allow", []
+    for cat in sorted(scores):
+        s, t = scores[cat], thresholds.get(cat, thresholds["default"])
+        band = "block" if s >= t["block"] else "flag" if s >= t["allow"] else "allow"
+        if band != "allow":
+            reasons.append({"code": cat, "description": f"score={s:.2f} en banda {band}", "source": "model"})
+        if _RANK[band] > _RANK[action]:
+            action = band
+    return action, reasons, _SEVERITY[action]
+
 if __name__ == "__main__":
 
     def resp(answer, actions=()):
@@ -92,4 +129,29 @@ if __name__ == "__main__":
     except ValidationError as e:
         s = error_summary(e)
         assert "LEAK-123" not in s and "category" in s and "confidence" in s
+    th = {"privacy_leak": {"allow": 0.1, "block": 0.5}, "default": {"allow": 0.2, "block": 0.8}}
+    a, r, sev = decide({"harassment": 0.62, "privacy_leak": 0.08}, th)
+    assert a == "flag" and [x["code"] for x in r] == ["harassment"] and sev == "medium"
+    assert r[0] == {"code": "harassment", "description": "score=0.62 en banda flag", "source": "model"}
+    a, r, sev = decide({"harassment": 0.30, "privacy_leak": 0.55}, th)
+    assert a == "block" and [x["code"] for x in r] == ["harassment", "privacy_leak"] and sev == "high"
+    assert decide({"x": 0.2}, th)[0] == "flag" and decide({"x": 0.8}, th)[0] == "block"  # edges, default entry
+    assert decide({"privacy_leak": 0.1}, th)[0] == "flag" and decide({"privacy_leak": 0.5}, th)[0] == "block"
+    assert decide({}, th) == ("allow", [], "low")
+    assert "default" in load_thresholds()["thresholds"]
+    import os, tempfile
+    for bad in (
+        {"version": "v1", "thresholds": {"x": {"allow": 0.1, "block": 0.5}}},  # missing default
+        {"version": "v1", "thresholds": {"default": {"allow": 0.9, "block": 0.5}}},  # allow > block
+        {"version": "v1", "thresholds": {"default": {"allow": 0.1, "block": 1.5}}},  # value > 1
+    ):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "m.yaml")
+            with open(p, "w", encoding="utf-8") as f:
+                yaml.safe_dump(bad, f)
+            try:
+                load_thresholds(p)
+                raise AssertionError("invalid config accepted")
+            except ValueError:
+                pass
     print("ok")

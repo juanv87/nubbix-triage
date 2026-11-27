@@ -1,0 +1,14 @@
+version: v1
+# Per-category thresholds on the moderation score (0..1).
+# score < allow -> allow; allow <= score < block -> flag (human review); score >= block -> block.
+# Categories without their own entry use `default`. Keys match OpenAI omni-moderation names.
+thresholds:
+  default: {allow: 0.2, block: 0.8}
+  harassment: {allow: 0.2, block: 0.7}
+  harassment/threatening: {allow: 0.1, block: 0.5}
+  hate: {allow: 0.1, block: 0.6}
+  illicit: {allow: 0.1, block: 0.6}
+  violence: {allow: 0.2, block: 0.7}
+  # Strictest: any trace gets reviewed, low scores already block.
+  self-harm: {allow: 0.05, block: 0.3}
+  sexual/minors: {allow: 0.01, block: 0.1}
