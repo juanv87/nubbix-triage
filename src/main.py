@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from .llm_client import ask_tool
 from .prompt_loader import load_prompt, render
 from .schemas import ToolResponse, TriageResponse
-from .guardrails import CONTROL, check_output, safe_response
+from .guardrails import CONTROL, check_output, error_summary, safe_response
 
 load_dotenv()
 class TriageError(Exception):
@@ -53,13 +53,15 @@ def triage(query: str, version: str | None = None) -> tuple[TriageResponse, list
             return result, calls
         
         except (ValidationError, ValueError) as e:
+            # Only field names and rules go back to the model: its rejected output never
+            # re-enters the prompt or the logs without passing the output gate.
+            err = error_summary(e)
             user = (
                 f"{base_user}\n\n"
-                f"Tu respuesta anterior fue:\n{response.args}\n\n"
-                f"No pasó la validación por este error:\n{e}\n\n"
+                f"Tu respuesta anterior no pasó la validación:\n{err}\n\n"
                 "Llama la herramienta de nuevo con argumentos corregidos."
             )
-            print(f"Error en el intento {attempt + 1}: {e}")
+            print(f"Error en el intento {attempt + 1}: {err}")
     raise TriageError(
         f"Se alcanzó el número máximo de intentos ({max_attempts}) sin obtener una respuesta válida."
     )

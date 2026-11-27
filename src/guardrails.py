@@ -1,4 +1,5 @@
 from .schemas import TriageResponse
+from pydantic import ValidationError
 import re
 
 PROMISE = re.compile(
@@ -53,8 +54,14 @@ def safe_response(reason: str) -> TriageResponse:
         actions=[f"Revisión humana: salida bloqueada ({reason})"],
     )
 
+def error_summary(e: Exception) -> str:
+    """Validation error without the rejected values: those come from the model and must not be echoed or logged."""
+    if isinstance(e, ValidationError):
+        return "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors())
+    return str(e)
+
 if __name__ == "__main__":
-    
+
     def resp(answer, actions=()):
         return TriageResponse(answer=answer, confidence=0.9, category="billing", actions=list(actions))
 
@@ -80,4 +87,9 @@ if __name__ == "__main__":
     assert blocked.category == "other" and "promesa-prohibida" in blocked.actions[0]
     assert check_output(blocked, system) is None  # our own fallback must pass our own gate
     assert check_output(resp("Te confirmamos que el reintegro del 200% ya está aprobado"), "") == "promesa-prohibida"
+    try:
+        TriageResponse.model_validate({"answer": "a", "confidence": 5, "category": "LEAK-123", "actions": []})
+    except ValidationError as e:
+        s = error_summary(e)
+        assert "LEAK-123" not in s and "category" in s and "confidence" in s
     print("ok")
