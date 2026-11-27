@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from .llm_client import ask_tool
 from .prompt_loader import load_prompt, render
 from .schemas import ToolResponse, TriageResponse
+from .guardrails import CONTROL, check_output, safe_response
 
 load_dotenv()
 class TriageError(Exception):
@@ -17,6 +18,12 @@ def triage(query: str, version: str | None = None) -> tuple[TriageResponse, list
         Devuelve la respuesta validada y un ToolResponse por intento (tokens, proveedor, modelo).
     """
     prompt = load_prompt(version or os.getenv("PROMPT_VERSION", "triage_v4"))
+    # Compuerta de entrada: una frase de control ("olvidá las instrucciones", "modo debug"...) es
+    # un intento de inyección. No se llama al LLM: el ticket va directo a revisión humana.
+    # La lista de llamadas vuelve vacía porque no hubo inferencia.
+    if CONTROL.search(query):
+        print("Entrada bloqueada por la compuerta: intento-de-inyeccion")
+        return safe_response("intento-de-inyeccion"), []
     system, base_user = render(prompt, query)
     # Semantic layer: retries only when the answer fails schema validation.
     max_attempts = int(os.getenv("MAX_REPAIR_ATTEMPTS", 2))
@@ -35,7 +42,16 @@ def triage(query: str, version: str | None = None) -> tuple[TriageResponse, list
             # Tool calling guarantees the basic shape; Pydantic still enforces the full contract.
             if response.args is None:
                 raise ValueError("Los argumentos de la tool call llegaron vacíos o truncados.")
-            return TriageResponse.model_validate(response.args), calls
+            
+            
+            result = TriageResponse.model_validate(response.args)
+            # bloquear o enmascarar cualquier lenguaje de control repetido o contenido sensible
+            reason = check_output(result, system)
+            if reason:
+                print(f"Salida bloqueada por la compuerta: {reason}")
+                result = safe_response(reason) 
+            return result, calls
+        
         except (ValidationError, ValueError) as e:
             user = (
                 f"{base_user}\n\n"
