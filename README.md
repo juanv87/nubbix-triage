@@ -48,9 +48,19 @@ Categorías: `billing`, `technical`, `account`, `other` (definidas en `CATEGORIE
 | `LLM_HTTP_MAX_RETRIES` | `2` | Reintentos del SDK ante errores transitorios (sin contar el intento inicial) |
 | `MAX_REPAIR_ATTEMPTS` | `2` | Intentos totales cuando la tool call no valida contra el esquema o llega vacía/truncada |
 | `MODERATION_PROVIDER` | `openai` | Moderación de la entrada (`openai` \| `mock` \| `off`). Si el clasificador falla, el ticket se marca `flag` (fail-closed), nunca se permite |
+| `LOG_SALT` | aleatorio por proceso | Sal del hash del ticket en el log de métricas. Si falta, se avisa por stderr y los hashes solo se correlacionan dentro de esa corrida |
+| `METRICS_PATH` | `data/metrics.jsonl` | Archivo donde `triage()` agrega una línea JSON por ejecución |
 | `PROMPT_VERSION` | `triage_v4` | Versión de prompt a usar (archivo de `prompts/` sin extensión). `triage_v4` es la elegida por datos; ver `prompts/CHANGELOG.md` |
 
 `temperature` y `max_output_tokens` son opcionales en el YAML de cada prompt (por defecto `0` y `300`).
+
+### Métricas
+
+Cada ejecución de `triage()` (CLI o eval) agrega una línea JSON a `data/metrics.jsonl`, también si bloquea la entrada, reemplaza la salida o termina en error. Campos: `ts`, `request_id`, `surface` (`cli` \| `eval`), `prompt_version`, `thresholds_version`, `provider`, `model` (del último intento), `attempts`, `input_tokens`, `output_tokens`, `total_tokens`, `latency_s`, `cost_usd` (precios en `config/pricing.yaml`; `null` si el modelo no tiene precio), `input_gate`, `moderation` (`action`, `severity`, `reasons`), `output_gate`, `input_hash`, `retention_tag` y `error` (solo el nombre de la clase).
+
+Nunca se guarda el texto del ticket, la respuesta, las acciones, la salida rechazada ni mensajes de excepción: el ticket solo aparece como `sha256(LOG_SALT + texto)`. La CLI imprime el `request_id` por stderr, así que stdout sigue siendo JSON puro.
+
+`retention_tag` fija cuánto conservar la línea: algún bloqueo (entrada, moderación o salida) es `incident_365d`; `flag` o error, `flag_90d`; el resto, `clean_30d`.
 
 ### Prompts versionados
 

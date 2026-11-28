@@ -32,13 +32,22 @@ def load_dataset(split: str) -> list[dict]:
     return [r for r in rows if split in ("all", "adversarial") or r["split"] == split]
 
 
+# ┌─ SEG-6.1 · TRANSVERSAL · Suite adversarial ──────────────────────────────────
+# │ Qué:     corre la MISMA triage() de la app sobre un dataset; con
+# │          --split adversarial usa data/adversarial.jsonl (intentos de inyección).
+# │ Por qué: mide las compuertas, la reparación y el fallback tal como corren en
+# │          producción, no una copia. Una categoría correcta puede venir con una
+# │          respuesta dañina: por eso en adversarial también imprime cada answer.
+# │ Tests unitarios de la compuerta: python -m src.guardrails
+# │ Claves:  eval, adversarial, evaluate, suite, inyección
+# └──────────────────────────────────────────────────────────────────────────────
 def evaluate(version: str, dataset: list[dict]) -> list[dict]:
     """Classify every case with one version; one result dict per case."""
     results = []
     for case in dataset:
         start = time.perf_counter()
         try:
-            response, calls = triage(case["consulta"], version)
+            response, calls = triage(case["consulta"], version, surface="eval")
             prediction, confidence, answer, error = response.category, response.confidence, response.answer, None
         except Exception as e:  # one failing case must not stop the run
             calls, prediction, confidence, answer, error = [], "error", None, None, str(e)
@@ -90,6 +99,13 @@ def print_table(title: str, groups: list[str], key: str, by_version: dict[str, l
         f"{len(by_version[v]) - len(valid(by_version[v]))}".rjust(12) for v in versions))
 
 
+# ┌─ FLUJO-4 · Corrida de evaluación: eval.main() ───────────────────────────────
+# │ Qué:     compara versiones de prompt sobre un split (dev | test | all |
+# │          adversarial), imprime aciertos por categoría y por regla, tokens y
+# │          latencia, y guarda cada caso en resultados/<timestamp>_<split>.jsonl.
+# │ Uso:     python -m src.eval --split adversarial
+# │ Claves:  eval, split, versiones, resultados, accuracy
+# └──────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare prompt versions against the dataset.")
     parser.add_argument("--versiones", nargs="*", help="e.g. triage_v1 triage_v2 (default: all)")
