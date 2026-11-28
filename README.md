@@ -105,7 +105,7 @@ Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombr
 │   ├── triage_v3.yaml         # v2 + 1 ejemplo sacado de un error real (NX-007)
 │   ├── triage_v4.yaml         # v2 + seguridad (delimitadores, consulta como dato)
 │   └── triage_v5.yaml         # v4 + R7 explícita y ejemplo 3 sin prometer reintegro
-├── resultados/                # Una corrida de eval por archivo .jsonl + dashboard.html
+├── resultados/                # Una corrida de eval por archivo .jsonl + dashboard.html y metricas.html
 ├── src/
 │   ├── main.py                # CLI y triage(): validación y ciclo de reparación
 │   ├── llm_client.py          # Clientes OpenAI/Gemini, tool calling, fallback entre proveedores
@@ -117,7 +117,9 @@ Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombr
 │   ├── eval.py                # Runner de evaluación por versión, categoría y regla
 │   ├── test_repair.py         # Self-check del ciclo de reparación (sin llamadas al LLM)
 │   ├── dashboard.py           # Genera resultados/dashboard.html
-│   └── dashboard_template.html
+│   ├── dashboard_template.html
+│   ├── metrics_dashboard.py   # Genera resultados/metricas.html desde data/metrics.jsonl
+│   └── metrics_dashboard_template.html
 ├── .env.example               # Plantilla de configuración
 └── requirements.txt           # Dependencias fijadas
 ```
@@ -162,6 +164,8 @@ python -m src.eval --split adversarial               # suite de prompt injection
 Corre cada ticket con el mismo `triage()` de la app e imprime accuracy por categoría y por regla de etiquetado, tokens, latencia e intentos de reparación. Los errores de API (cuota, red) se cuentan aparte y no afectan el accuracy. El detalle por caso queda en `resultados/<fecha>_<split>.jsonl`. Cada caso es una llamada real al LLM.
 
 `python -m src.dashboard` arma `resultados/dashboard.html` con todas esas corridas (precisión por split y por regla, tickets fallados, respuestas ante injection, costo y estabilidad entre corridas). Es un archivo estático: se abre directo en el navegador.
+
+`python -m src.metrics_dashboard` arma `resultados/metricas.html` con la operación registrada en `data/metrics.jsonl` (o en `METRICS_PATH`): latencia y resultado de cada ejecución, costo y tokens, latencia por modelo, costo por versión de prompt, qué compuerta, motivo de moderación o error actuó, retención del log y el registro completo, todo filtrable por modelo, versión, origen y resultado. También es un archivo estático.
 
 `python -m src.test_repair` verifica el ciclo de reparación con un LLM falso (sin red ni costo) y escribe sus métricas en un archivo temporal, nunca en `data/metrics.jsonl`.
 

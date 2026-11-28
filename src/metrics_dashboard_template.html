@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operación del triage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Atkinson+Hyperlegible+Next:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #e8ece7;
+  --surface: #f7f8f5;
+  --ink: #17211b;
+  --ink-2: #4a574f;
+  --ink-3: #5f6b63;
+  --rule: #cbd2cb;
+  --grid: #dde2dc;
+  --accent: #1e6b5c;
+  --ok: #9aa69e;
+  --flag: #fbb315;
+  --guardrail: #6a4ce2;
+  --error: #dc3c3d;
+  --display: "Schibsted Grotesk", "Segoe UI", sans-serif;
+  --body: "Atkinson Hyperlegible Next", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #101612;
+    --surface: #172019;
+    --ink: #e5eae4;
+    --ink-2: #aab5ad;
+    --ink-3: #8b978f;
+    --rule: #2b362f;
+    --grid: #222c25;
+    --accent: #4fb39d;
+    --ok: #5f6b63;
+    --guardrail: #9887ef;
+    --error: #eb6263;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101612;
+  --surface: #172019;
+  --ink: #e5eae4;
+  --ink-2: #aab5ad;
+  --ink-3: #8b978f;
+  --rule: #2b362f;
+  --grid: #222c25;
+  --accent: #4fb39d;
+  --ok: #5f6b63;
+  --guardrail: #9887ef;
+  --error: #eb6263;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 1rem/1.5 var(--body);
+  font-variant-numeric: tabular-nums;
+}
+main { max-width: 74rem; margin: 0 auto; padding: 2.5rem 1rem 5rem; }
+@media (min-width: 48rem) { main { padding: 4rem 2rem 6rem; } }
+h1, h2 { font-variant-numeric: normal; font-family: var(--display); margin: 0; letter-spacing: -0.015em; }
+h1 { font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1.04; font-weight: 800; max-width: 20ch; }
+h2 { font-size: 1.45rem; line-height: 1.2; font-weight: 700; }
+p { margin: 0; }
+.lede { margin-top: 0.9rem; max-width: 62ch; color: var(--ink-2); font-size: 1.05rem; }
+.muted { color: var(--ink-3); font-size: 0.875rem; }
+section { margin-top: 4rem; }
+.head { margin-bottom: 1.2rem; }
+.head p { max-width: 64ch; color: var(--ink-2); margin-top: 0.3rem; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Filters: one row, applies to the whole page */
+.filters {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: end;
+  margin: 2rem -1rem 0; padding: 0.8rem 1rem;
+  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--rule);
+}
+.filters label { display: grid; gap: 0.2rem; font-size: 0.8rem; color: var(--ink-2); }
+.filters select {
+  font: 500 0.92rem var(--body); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--rule); border-radius: 8px; padding: 0.35rem 0.6rem; min-width: 9rem;
+}
+.filters .count { margin-left: auto; font-size: 0.9rem; color: var(--ink-2); }
+.link { font: 500 0.9rem var(--body); color: var(--accent); background: none; border: 0; padding: 0.35rem 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* The run ribbon: the one bold element */
+.ribbon-wrap { margin-top: 2.2rem; }
+.ribbon-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ribbon-plot { position: relative; height: 15rem; min-width: calc(var(--n) * 4px); margin-left: 2.6rem; }
+.ribbon-plot .gridline { position: absolute; left: 0; right: 0; border-top: 1px solid var(--grid); }
+.ribbon-plot .gridline span { position: absolute; right: calc(100% + 0.5rem); top: -0.65em; font-size: 0.75rem; color: var(--ink-3); white-space: nowrap; }
+.ribbon-plot .baseline { position: absolute; left: 0; right: 0; bottom: 0; border-top: 1px solid var(--rule); }
+.ribbon { position: absolute; inset: 0; display: flex; align-items: flex-end; gap: 2px; }
+.ribbon .run { flex: 1 1 0; min-width: 2px; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+.ribbon .run i { display: block; width: 100%; border-radius: 4px 4px 0 0; background: var(--c); min-height: 6px; }
+.ribbon .run:hover i, .ribbon .run.hot i { outline: 2px solid var(--ink); outline-offset: 1px; }
+.ribbon .run.ghost i { opacity: 0.14; }
+.ribbon-axis { display: flex; justify-content: space-between; margin: 0.45rem 0 0 2.6rem; font-size: 0.8rem; color: var(--ink-3); min-width: calc(var(--n) * 4px); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.3rem; margin-top: 1rem; font-size: 0.875rem; color: var(--ink-2); }
+.key { display: inline-flex; align-items: center; gap: 0.45rem; white-space: nowrap; }
+.key::before { content: ""; width: 0.75rem; height: 0.75rem; border-radius: 3px; background: var(--c); flex: none; }
+
+/* Headline numbers: quiet, one line */
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.4rem 2rem; margin-top: 2.5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule); }
+@media (min-width: 48rem) { .stats { grid-template-columns: repeat(5, 1fr); } }
+.stat dt { font-size: 0.85rem; color: var(--ink-2); }
+.stat dd { font-variant-numeric: proportional-nums; margin: 0.15rem 0 0; font-family: var(--display); font-size: 1.75rem; font-weight: 700; line-height: 1.1; }
+.stat dd small { display: block; font-family: var(--body); font-size: 0.8rem; font-weight: 400; color: var(--ink-3); margin-top: 0.2rem; }
+
+.grid-2 { display: grid; gap: 3rem; }
+.grid-2 > * { min-width: 0; }
+@media (min-width: 62rem) { .grid-2 { grid-template-columns: 1.2fr 1fr; } }
+.panel { background: var(--surface); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--rule); padding: 1.2rem 1.25rem 1.3rem; }
+
+/* Latency strip per model */
+.strip { display: grid; grid-template-columns: minmax(7rem, auto) 1fr; gap: 1rem 0.9rem; align-items: center; }
+.strip .name { font-weight: 500; font-size: 0.92rem; }
+.strip .name small { display: block; font-weight: 400; color: var(--ink-3); font-size: 0.8rem; }
+.lane { position: relative; height: 2.4rem; border-bottom: 1px solid var(--rule); }
+.lane .dot { position: absolute; bottom: 0.55rem; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px var(--surface); opacity: 0.85; }
+.lane .dot:hover { outline: 2px solid var(--ink); outline-offset: 1px; opacity: 1; }
+.lane .p50 { position: absolute; top: 0; bottom: 0; border-left: 2px solid var(--ink); }
+.lane .p50 span { position: absolute; left: 0.3rem; top: -0.15rem; font-size: 0.75rem; color: var(--ink-2); white-space: nowrap; }
+.strip-axis { grid-column: 2; display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--ink-3); margin-top: -0.6rem; }
+
+/* Per prompt version */
+.versions { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.versions th, .versions td { padding: 0.55rem 0.4rem; text-align: left; border-bottom: 1px solid var(--grid); }
+.versions thead th { font-weight: 500; color: var(--ink-2); font-size: 0.8rem; border-bottom-color: var(--rule); }
+.versions td.num, .versions th.num { text-align: right; }
+.bar { white-space: nowrap; display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
+.bar > span { height: 0.85rem; border-radius: 0 4px 4px 0; background: var(--accent); min-width: 2px; }
+
+/* Guardrails */
+.guard { display: grid; gap: 1.6rem; }
+@media (min-width: 48rem) { .guard { grid-template-columns: repeat(3, 1fr); } }
+.guard h3 { font: 700 1rem var(--display); margin: 0 0 0.6rem; }
+.guard ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
+.guard li { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.92rem; border-bottom: 1px solid var(--grid); padding-bottom: 0.4rem; }
+.guard li b { font-family: var(--display); font-weight: 700; }
+.guard .none { color: var(--ink-3); font-size: 0.9rem; }
+
+/* Status pill: icon + label, never color alone */
+.pill { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; font-weight: 500; white-space: nowrap; }
+.pill::before { display: inline-grid; place-items: center; width: 1.05rem; height: 1.05rem; border-radius: 50%; background: var(--c); color: #fff; font-size: 0.68rem; font-weight: 700; }
+.pill.o-ok::before { content: "✓"; color: var(--surface); }
+.pill.o-flag::before { content: "!"; color: #0b0b0b; }
+.pill.o-guardrail::before { content: "■"; }
+.pill.o-error::before { content: "×"; }
+
+/* Log table */
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.log { width: 100%; min-width: 54rem; border-collapse: collapse; font-size: 0.88rem; background: var(--surface); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--rule); }
+.log th, .log td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.log thead th { font-weight: 500; color: var(--ink-2); font-size: 0.8rem; border-bottom-color: var(--rule); }
+.log td.num, .log th.num { text-align: right; }
+.log tbody tr:last-child td { border-bottom: 0; }
+.log tr.hot td { background: color-mix(in oklab, var(--accent) 10%, var(--surface)); }
+.empty { padding: 2.5rem 1rem; text-align: center; color: var(--ink-2); }
+
+#tip {
+  position: fixed; z-index: 10; pointer-events: none; max-width: 20rem;
+  background: var(--ink); color: var(--bg); border-radius: 8px; padding: 0.55rem 0.75rem;
+  font-size: 0.82rem; line-height: 1.45; opacity: 0; transition: opacity 0.1s;
+}
+#tip.on { opacity: 1; }
+#tip b { font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { #tip { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cada ejecución del triage, una barra</h1>
+  <p class="lede" id="lede"></p>
+
+  <div class="filters" role="group" aria-label="Filtros">
+    <label>Modelo <select id="f-model"></select></label>
+    <label>Versión de prompt <select id="f-version"></select></label>
+    <label>Origen <select id="f-surface"></select></label>
+    <label>Resultado <select id="f-outcome"></select></label>
+    <button class="link" id="reset" type="button" hidden>Quitar filtros</button>
+    <span class="count" id="count" aria-live="polite"></span>
+  </div>
+
+  <div class="ribbon-wrap">
+    <p class="muted">Altura: latencia de la ejecución. Orden: cronológico, de izquierda a derecha.</p>
+    <div class="ribbon-scroll">
+      <div class="ribbon-plot" id="ribbon-plot" aria-label="Latencia y resultado de cada ejecución" role="img"></div>
+      <div class="ribbon-axis" id="ribbon-axis"></div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <dl class="stats" id="stats"></dl>
+
+  <section aria-labelledby="perf-title">
+    <div class="grid-2">
+      <div>
+        <div class="head">
+          <h2 id="perf-title">Latencia por modelo</h2>
+          <p>Un punto por ejecución que llegó al modelo. La línea marca la mediana.</p>
+        </div>
+        <div class="panel" id="strip"></div>
+      </div>
+      <div>
+        <div class="head">
+          <h2>Costo por versión de prompt</h2>
+          <p>Promedios por ejecución. El costo se expresa cada 1.000 ejecuciones.</p>
+        </div>
+        <div class="panel scroll" id="versions"></div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="guard-title">
+    <div class="head">
+      <h2 id="guard-title">Qué frenó o marcó cada ejecución</h2>
+      <p>Compuertas de entrada y salida, motivos de moderación y errores. La retención indica cuánto tiempo se conserva cada línea del log.</p>
+    </div>
+    <div class="panel guard" id="guard"></div>
+  </section>
+
+  <section aria-labelledby="log-title">
+    <div class="head">
+      <h2 id="log-title">Registro de ejecuciones</h2>
+      <p>La más reciente primero. El log no guarda el texto del ticket ni la respuesta.</p>
+    </div>
+    <div class="scroll" id="log"></div>
+    <button class="link" id="more" type="button" hidden></button>
+  </section>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const ROWS = JSON.parse(document.getElementById("data").textContent);
+const OUTCOMES = {
+  ok:        { label: "Sin incidentes",           c: "var(--ok)" },
+  flag:      { label: "Marcada por moderación",   c: "var(--flag)" },
+  guardrail: { label: "Frenada por un guardrail", c: "var(--guardrail)" },
+  error:     { label: "Error",                    c: "var(--error)" },
+};
+const SURFACES = { cli: "CLI", eval: "Evaluación" };
+const NO_MODEL = "Sin llamada al modelo";
+const PAGE = 40;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const modelOf = r => r.model || NO_MODEL;
+const fmtS = s => s == null ? "—" : `${s.toFixed(s < 10 ? 2 : 1)} s`;
+const fmtInt = n => n.toLocaleString("es-AR");
+const fmtUsd = (n, d = 4) => n == null ? "—" : `US$ ${n.toLocaleString("es-AR", { minimumFractionDigits: d, maximumFractionDigits: d })}`;
+const time = ts => new Date(ts).toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const sum = (xs, f) => xs.reduce((a, r) => a + (f(r) ?? 0), 0);
+function pct(xs, p) {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)];
+}
+const called = rows => rows.filter(r => r.attempts > 0);
+
+/* ---------- filters ---------- */
+const FILTERS = {
+  model:   { el: "f-model",   all: "Todos",  get: modelOf },
+  version: { el: "f-version", all: "Todas",  get: r => r.prompt_version },
+  surface: { el: "f-surface", all: "Todos",  get: r => r.surface, label: v => SURFACES[v] || v },
+  outcome: { el: "f-outcome", all: "Todos",  get: r => r.outcome, label: v => OUTCOMES[v].label, order: Object.keys(OUTCOMES) },
+};
+for (const [key, f] of Object.entries(FILTERS)) {
+  const vals = [...new Set(ROWS.map(f.get))];
+  vals.sort(f.order ? (a, b) => f.order.indexOf(a) - f.order.indexOf(b) : undefined);
+  $(f.el).innerHTML = `<option value="">${f.all}</option>` +
+    vals.map(v => `<option value="${esc(v)}">${esc(f.label ? f.label(v) : v)}</option>`).join("");
+  $(f.el).addEventListener("change", () => { shown = PAGE; render(); });
+}
+$("reset").addEventListener("click", () => {
+  for (const f of Object.values(FILTERS)) $(f.el).value = "";
+  shown = PAGE; render();
+});
+const active = () => Object.values(FILTERS).filter(f => $(f.el).value);
+const filtered = () => ROWS.filter(r => active().every(f => String(f.get(r)) === $(f.el).value));
+
+/* ---------- ribbon (hero) ---------- */
+function ribbon(rows) {
+  const keep = new Set(rows);
+  const max = Math.max(1, ...ROWS.map(r => r.latency_s || 0));
+  const step = max > 20 ? 10 : max > 8 ? 5 : 2;
+  const grid = [];
+  for (let v = step; v <= max; v += step) grid.push(`<div class="gridline" style="bottom:${v / max * 100}%"><span>${v} s</span></div>`);
+  const plot = $("ribbon-plot");
+  plot.style.setProperty("--n", ROWS.length);
+  $("ribbon-axis").style.setProperty("--n", ROWS.length);
+  plot.innerHTML = grid.join("") + '<div class="baseline"></div><div class="ribbon">' +
+    ROWS.map((r, i) => `<div class="run${keep.has(r) ? "" : " ghost"}" data-i="${i}"><i style="--c:${OUTCOMES[r.outcome].c};height:${(r.latency_s || 0) / max * 100}%"></i></div>`).join("") +
+    "</div>";
+  $("ribbon-axis").innerHTML = ROWS.length ? `<span>${time(ROWS[0].ts)}</span><span>${time(ROWS.at(-1).ts)}</span>` : "";
+  const counts = Object.fromEntries(Object.keys(OUTCOMES).map(k => [k, rows.filter(r => r.outcome === k).length]));
+  $("legend").innerHTML = Object.entries(OUTCOMES).map(([k, o]) => `<span class="key" style="--c:${o.c}">${o.label} (${counts[k]})</span>`).join("");
+}
+
+/* ---------- headline numbers ---------- */
+function stats(rows) {
+  const lat = called(rows).map(r => r.latency_s);
+  const cost = sum(rows, r => r.cost_usd);
+  const priced = rows.filter(r => r.cost_usd != null).length;
+  const incidents = rows.filter(r => r.outcome !== "ok").length;
+  const items = [
+    ["Ejecuciones", fmtInt(rows.length), `${called(rows).length} llegaron al modelo`],
+    ["Costo total", fmtUsd(cost), priced ? `${fmtUsd(cost / priced * 1000, 2)} cada 1.000` : "sin precio registrado"],
+    ["Latencia mediana", fmtS(pct(lat, 0.5)), `p95: ${fmtS(pct(lat, 0.95))}`],
+    ["Tokens", fmtInt(sum(rows, r => r.total_tokens)), `${fmtInt(sum(rows, r => r.input_tokens))} de entrada`],
+    ["Con incidentes", fmtInt(incidents), rows.length ? `${(incidents / rows.length * 100).toFixed(1)} % del total` : ""],
+  ];
+  $("stats").innerHTML = items.map(([t, v, s]) => `<div class="stat"><dt>${t}</dt><dd>${v}<small>${s}</small></dd></div>`).join("");
+}
+
+/* ---------- latency strip ---------- */
+function strip(rows) {
+  const lanes = {};
+  for (const r of called(rows)) (lanes[modelOf(r)] ||= []).push(r);
+  const names = Object.keys(lanes).sort();
+  if (!names.length) { $("strip").innerHTML = '<p class="none muted">Ninguna de estas ejecuciones llegó al modelo.</p>'; return; }
+  const max = Math.max(...called(rows).map(r => r.latency_s)) * 1.05;
+  $("strip").innerHTML = '<div class="strip">' + names.map(n => {
+    const rs = lanes[n], med = pct(rs.map(r => r.latency_s), 0.5);
+    return `<div class="name">${esc(n)}<small>${esc(rs[0].provider)}, ${rs.length} ejecuciones</small></div>
+      <div class="lane">
+        <div class="p50" style="left:${med / max * 100}%"><span>mediana ${fmtS(med)}</span></div>
+        ${rs.map(r => `<span class="dot" data-i="${ROWS.indexOf(r)}" style="--c:${OUTCOMES[r.outcome].c};left:${r.latency_s / max * 100}%"></span>`).join("")}
+      </div>`;
+  }).join("") + `<div class="strip-axis"><span>0 s</span><span>${fmtS(max)}</span></div></div>`;
+}
+
+/* ---------- per prompt version ---------- */
+function versions(rows) {
+  const by = {};
+  for (const r of rows) (by[r.prompt_version] ||= []).push(r);
+  const stats = Object.keys(by).sort().map(v => {
+    const rs = by[v], c = rs.filter(r => r.cost_usd != null), l = called(rs);
+    return { v, n: rs.length, cost: c.length ? sum(c, r => r.cost_usd) / c.length * 1000 : null,
+      lat: pct(l.map(r => r.latency_s), 0.5), tok: l.length ? sum(l, r => r.total_tokens) / l.length : null };
+  });
+  if (!stats.length) { $("versions").innerHTML = '<p class="none muted">Sin datos para estos filtros.</p>'; return; }
+  const maxCost = Math.max(...stats.map(s => s.cost || 0)) || 1;
+  $("versions").innerHTML = `<table class="versions"><thead><tr>
+      <th scope="col">Versión</th><th scope="col" class="num">Ejec.</th><th scope="col">Costo cada 1.000</th>
+      <th scope="col" class="num">Latencia mediana</th><th scope="col" class="num">Tokens prom.</th></tr></thead><tbody>` +
+    stats.map(s => `<tr><th scope="row">${esc(s.v)}</th><td class="num">${s.n}</td>
+      <td><div class="bar"><span style="width:${(s.cost || 0) / maxCost * 6}rem"></span>${fmtUsd(s.cost, 3)}</div></td>
+      <td class="num">${fmtS(s.lat)}</td><td class="num">${s.tok == null ? "—" : fmtInt(Math.round(s.tok))}</td></tr>`).join("") +
+    "</tbody></table>";
+}
+
+/* ---------- guardrails ---------- */
+function tally(values) {
+  const m = new Map();
+  for (const v of values) if (v) m.set(v, (m.get(v) || 0) + 1);
+  return [...m].sort((a, b) => b[1] - a[1]);
+}
+function list(title, entries, emptyText) {
+  return `<div><h3>${title}</h3>${entries.length
+    ? `<ul>${entries.map(([k, n]) => `<li><span>${esc(k)}</span><b>${n}</b></li>`).join("")}</ul>`
+    : `<p class="none">${emptyText}</p>`}</div>`;
+}
+function guard(rows) {
+  const gates = [
+    ...tally(rows.map(r => r.input_gate)).map(([k, n]) => [`Entrada: ${k}`, n]),
+    ...tally(rows.map(r => r.output_gate)).map(([k, n]) => [`Salida: ${k}`, n]),
+  ];
+  const reasons = tally(rows.flatMap(r => (r.moderation?.reasons || []).map(x => x.code || x)));
+  const actions = tally(rows.map(r => r.moderation && r.moderation.action !== "allow" ? `Acción: ${r.moderation.action} (${r.moderation.severity})` : null));
+  const errors = tally(rows.map(r => r.error)).map(([k, n]) => [`Error: ${k}`, n]);
+  const retention = tally(rows.map(r => r.retention_tag));
+  $("guard").innerHTML =
+    list("Compuertas y errores", [...gates, ...errors], "Ninguna compuerta actuó y no hubo errores.") +
+    list("Moderación", [...actions, ...reasons.map(([k, n]) => [`Motivo: ${k}`, n])], "La moderación permitió todas las ejecuciones.") +
+    list("Retención del log", retention, "Sin ejecuciones.");
+}
+
+/* ---------- log table ---------- */
+let shown = PAGE;
+function pill(o) {
+  return `<span class="pill o-${o}" style="--c:${OUTCOMES[o].c}">${OUTCOMES[o].label}</span>`;
+}
+function log(rows) {
+  const recent = [...rows].reverse();
+  if (!recent.length) {
+    $("log").innerHTML = '<div class="empty">Ninguna ejecución coincide con estos filtros. Probá quitar alguno.</div>';
+    $("more").hidden = true;
+    return;
+  }
+  $("log").innerHTML = `<table class="log"><thead><tr>
+      <th scope="col">Fecha y hora</th><th scope="col">Origen</th><th scope="col">Prompt</th>
+      <th scope="col">Modelo</th><th scope="col" class="num">Intentos</th><th scope="col" class="num">Latencia</th>
+      <th scope="col" class="num">Tokens</th><th scope="col" class="num">Costo</th><th scope="col">Resultado</th>
+      <th scope="col">Retención</th></tr></thead><tbody>` +
+    recent.slice(0, shown).map(r => `<tr data-i="${ROWS.indexOf(r)}">
+      <td>${time(r.ts)}</td>      <td>${esc(SURFACES[r.surface] || r.surface)}</td><td>${esc(r.prompt_version)}</td><td>${esc(modelOf(r))}</td>
+      <td class="num">${r.attempts}</td><td class="num">${r.attempts ? fmtS(r.latency_s) : "—"}</td>
+      <td class="num">${r.total_tokens ? fmtInt(r.total_tokens) : "—"}</td><td class="num">${fmtUsd(r.cost_usd, 6)}</td>
+      <td>${pill(r.outcome)}</td><td>${esc(r.retention_tag)}</td></tr>`).join("") +
+    "</tbody></table>";
+  const rest = recent.length - shown;
+  $("more").hidden = rest <= 0;
+  $("more").textContent = `Mostrar ${Math.min(rest, PAGE)} más (quedan ${rest})`;
+}
+$("more").addEventListener("click", () => { shown += PAGE; log(filtered()); });
+
+/* ---------- tooltip + cross-highlight ---------- */
+const tip = $("tip");
+function describe(r) {
+  const mod = r.moderation?.reasons?.length ? `<br>Moderación: ${esc(r.moderation.reasons.map(x => x.code || x).join(", "))}` : "";
+  const gate = r.input_gate || r.output_gate ? `<br>Compuerta: ${esc(r.input_gate || r.output_gate)}` : "";
+  const err = r.error ? `<br>Error: ${esc(r.error)}` : "";
+  return `<b>${OUTCOMES[r.outcome].label}</b><br>${time(r.ts)} · ${esc(r.prompt_version)}<br>` +
+    `${esc(modelOf(r))} · ${r.attempts ? fmtS(r.latency_s) : "sin latencia"} · ${fmtUsd(r.cost_usd, 6)}${gate}${mod}${err}`;
+}
+function highlight(i) {
+  document.querySelectorAll(".hot").forEach(el => el.classList.remove("hot"));
+  if (i != null) document.querySelectorAll(`[data-i="${i}"]`).forEach(el => el.classList.add("hot"));
+}
+document.addEventListener("pointermove", e => {
+  const el = e.target.closest(".run, .dot");
+  if (!el) { tip.classList.remove("on"); highlight(null); return; }
+  tip.innerHTML = describe(ROWS[el.dataset.i]);
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(innerWidth - w - 8, Math.max(8, e.clientX - w / 2)) + "px";
+  tip.style.top = (e.clientY - h - 14 < 8 ? e.clientY + 18 : e.clientY - h - 14) + "px";
+  tip.classList.add("on");
+  highlight(el.dataset.i);
+});
+
+/* ---------- render ---------- */
+function render() {
+  const rows = filtered();
+  const n = active().length;
+  $("reset").hidden = !n;
+  $("count").textContent = n ? `${rows.length} de ${ROWS.length} ejecuciones` : `${ROWS.length} ejecuciones`;
+  ribbon(rows); stats(rows); strip(rows); versions(rows); guard(rows); log(rows);
+}
+$("lede").textContent = ROWS.length
+  ? `${fmtInt(ROWS.length)} ejecuciones registradas en data/metrics.jsonl, desde el ${time(ROWS[0].ts)} hasta el ${time(ROWS.at(-1).ts)}, en hora local. Pasá el cursor sobre una barra para ver el detalle.`
+  : "Todavía no hay ejecuciones en data/metrics.jsonl. Corré el triage desde la CLI o con python -m src.eval y volvé a generar esta página.";
+render();
+</script>
+</body>
+</html>
