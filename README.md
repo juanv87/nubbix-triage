@@ -95,9 +95,12 @@ Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombr
 │   ├── moderation.yaml        # Umbrales de moderación por categoría (versionados)
 │   └── pricing.yaml           # USD por 1M tokens por modelo, con fuente y fecha
 ├── data/
-│   ├── tickets.jsonl          # 34 tickets etiquetados (20 dev, 14 test) con reglas R1-R9
-│   ├── adversarial.jsonl      # 10 casos de prompt injection
 │   └── metrics.jsonl          # Log append-only, una línea por request
+├── evals/
+│   ├── dataset.jsonl          # 34 tickets etiquetados (20 dev, 14 test) con reglas R1-R9
+│   ├── adversarial.jsonl      # 10 casos de prompt injection
+│   ├── README.md              # Campos del dataset y reglas de etiquetado
+│   └── runner.py              # Runner de evaluación por versión, categoría y regla
 ├── prompts/
 │   ├── CHANGELOG.md           # Historia de versiones de prompts
 │   ├── triage_v1.yaml         # Línea base zero-shot mínima
@@ -114,7 +117,6 @@ Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombr
 │   ├── guardrails.py          # Compuerta de salida, respuesta segura, decisión de moderación
 │   ├── moderation.py          # Moderación de entrada (OpenAI Moderation, fail-closed)
 │   ├── metrics.py             # Línea de métricas: tokens, latencia, costo, hash de la entrada
-│   ├── eval.py                # Runner de evaluación por versión, categoría y regla
 │   ├── test_repair.py         # Self-check del ciclo de reparación (sin llamadas al LLM)
 │   ├── dashboard.py           # Genera resultados/dashboard.html
 │   ├── dashboard_template.html
@@ -123,16 +125,6 @@ Cada prompt es `prompts/triage_vN.yaml` con los campos `version` (igual al nombr
 ├── .env.example               # Plantilla de configuración
 └── requirements.txt           # Dependencias fijadas
 ```
-
-Equivalencia con los entregables de la consigna:
-
-| Entregable | En este repo |
-|---|---|
-| `src/main.py` | `src/main.py` |
-| `evals/dataset.jsonl` | `data/tickets.jsonl` (split `dev` + `test`) |
-| `evals/runner.py` | `src/eval.py` (`python -m src.eval`) |
-| `evals/adversarial.jsonl` | `data/adversarial.jsonl` (`python -m src.eval --split adversarial`) |
-| `data/metrics.jsonl` | `data/metrics.jsonl` |
 
 ## Cómo funciona
 
@@ -148,10 +140,10 @@ Equivalencia con los entregables de la consigna:
 ## Evaluación
 
 ```bash
-python -m src.eval                                   # todas las versiones, split dev
-python -m src.eval --versiones triage_v1 triage_v2   # solo algunas
-python -m src.eval --split test                      # comparación final, una sola vez
-python -m src.eval --split adversarial               # suite de prompt injection (imprime cada answer)
+python -m evals.runner                                   # todas las versiones, split dev
+python -m evals.runner --versiones triage_v1 triage_v2   # solo algunas
+python -m evals.runner --split test                      # comparación final, una sola vez
+python -m evals.runner --split adversarial               # suite de prompt injection (imprime cada answer)
 ```
 
 | Split | Para qué |
@@ -159,7 +151,7 @@ python -m src.eval --split adversarial               # suite de prompt injection
 | `dev` (default) | Iterar sobre los prompts mirando los fallos |
 | `test` | Comparación final; no se usa para iterar, así no se contamina |
 | `all` | dev + test juntos; vista general, no para decidir |
-| `adversarial` | Resistencia a prompt injection (`data/adversarial.jsonl`) |
+| `adversarial` | Resistencia a prompt injection (`evals/adversarial.jsonl`) |
 
 Corre cada ticket con el mismo `triage()` de la app e imprime accuracy por categoría y por regla de etiquetado, tokens, latencia e intentos de reparación. Los errores de API (cuota, red) se cuentan aparte y no afectan el accuracy. El detalle por caso queda en `resultados/<fecha>_<split>.jsonl`. Cada caso es una llamada real al LLM.
 
@@ -233,7 +225,7 @@ Se eligió v4 aunque pierde un caso en dev frente a v2: el costo es el borde R1/
 
 ## Seguridad adversarial
 
-`data/adversarial.jsonl` tiene 10 ataques que nunca se usaron para editar prompts: cambio de instrucciones (ADV-001, ADV-005 en inglés), cierre falso del delimitador + `SYSTEM:` (ADV-002), exfiltración del system prompt (ADV-003, ADV-010 por traducción), modo debug (ADV-004), pedido legítimo con inyección en una posdata (ADV-006), romper el formato (ADV-007), JSON dictado (ADV-008) y jailbreak por rol (ADV-009).
+`evals/adversarial.jsonl` tiene 10 ataques que nunca se usaron para editar prompts: cambio de instrucciones (ADV-001, ADV-005 en inglés), cierre falso del delimitador + `SYSTEM:` (ADV-002), exfiltración del system prompt (ADV-003, ADV-010 por traducción), modo debug (ADV-004), pedido legítimo con inyección en una posdata (ADV-006), romper el formato (ADV-007), JSON dictado (ADV-008) y jailbreak por rol (ADV-009).
 
 Mitigaciones, en capas (cada una tiene su ID `SEG-x.y` en el código; el índice está al inicio de `src/main.py`):
 

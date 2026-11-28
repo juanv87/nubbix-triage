@@ -4,7 +4,7 @@ Usage:
     python -m src.dashboard
 
 The page is a single static file: the data is embedded, so it opens straight from disk.
-Re-run it after each `python -m src.eval` to refresh the dashboard.
+Re-run it after each `python -m evals.runner` to refresh the dashboard.
 """
 import json
 import re
@@ -47,8 +47,8 @@ def load_runs() -> list[dict]:
 
 def load_cases() -> dict[str, str]:
     cases = {}
-    for name in ("tickets.jsonl", "adversarial.jsonl"):
-        with open(ROOT / "data" / name, encoding="utf-8") as f:
+    for name in ("dataset.jsonl", "adversarial.jsonl"):
+        with open(ROOT / "evals" / name, encoding="utf-8") as f:
             cases.update({c["id"]: c["consulta"] for c in map(json.loads, filter(str.strip, f))})
     return cases
 

@@ -451,7 +451,7 @@ function render() {
 }
 $("lede").textContent = ROWS.length
   ? `${fmtInt(ROWS.length)} ejecuciones registradas en data/metrics.jsonl, desde el ${time(ROWS[0].ts)} hasta el ${time(ROWS.at(-1).ts)}, en hora local. Pasá el cursor sobre una barra para ver el detalle.`
-  : "Todavía no hay ejecuciones en data/metrics.jsonl. Corré el triage desde la CLI o con python -m src.eval y volvé a generar esta página.";
+  : "Todavía no hay ejecuciones en data/metrics.jsonl. Corré el triage desde la CLI o con python -m evals.runner y volvé a generar esta página.";
 render();
 </script>
 </body>

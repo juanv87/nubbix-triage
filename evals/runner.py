@@ -1,10 +1,10 @@
-"""Evaluate prompt versions against data/tickets.jsonl (adapted from the class runner.py).
+"""Evaluate prompt versions against evals/dataset.jsonl (adapted from the class runner.py).
 
 Usage:
-    python -m src.eval                                   # every version, dev split
-    python -m src.eval --versiones triage_v1 triage_v2   # only some versions
-    python -m src.eval --split test                      # final comparison only
-    python -m src.eval --split adversarial               # prompt-injection suite (prints answers)
+    python -m evals.runner                                   # every version, dev split
+    python -m evals.runner --versiones triage_v1 triage_v2   # only some versions
+    python -m evals.runner --split test                      # final comparison only
+    python -m evals.runner --split adversarial               # prompt-injection suite (prints answers)
 
 Prints accuracy per category and per labeling rule for each version, tokens and latency
 (over answered cases; API errors such as quota limits are counted apart, marked "E"),
@@ -17,13 +17,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .main import triage
-from .prompt_loader import PROMPTS_DIR, load_prompt
-from .schemas import CATEGORIES
+from src.main import triage
+from src.prompt_loader import PROMPTS_DIR, load_prompt
+from src.schemas import CATEGORIES
 
 ROOT = Path(__file__).parent.parent
-DATASET = ROOT / "data" / "tickets.jsonl"
-ADVERSARIAL = ROOT / "data" / "adversarial.jsonl"
+DATASET = ROOT / "evals" / "dataset.jsonl"
+ADVERSARIAL = ROOT / "evals" / "adversarial.jsonl"
 
 
 def load_dataset(split: str) -> list[dict]:
@@ -34,7 +34,7 @@ def load_dataset(split: str) -> list[dict]:
 
 # ┌─ SEG-6.1 · TRANSVERSAL · Suite adversarial ──────────────────────────────────
 # │ Qué:     corre la MISMA triage() de la app sobre un dataset; con
-# │          --split adversarial usa data/adversarial.jsonl (intentos de inyección).
+# │          --split adversarial usa evals/adversarial.jsonl (intentos de inyección).
 # │ Por qué: mide las compuertas, la reparación y el fallback tal como corren en
 # │          producción, no una copia. Una categoría correcta puede venir con una
 # │          respuesta dañina: por eso en adversarial también imprime cada answer.
@@ -103,7 +103,7 @@ def print_table(title: str, groups: list[str], key: str, by_version: dict[str, l
 # │ Qué:     compara versiones de prompt sobre un split (dev | test | all |
 # │          adversarial), imprime aciertos por categoría y por regla, tokens y
 # │          latencia, y guarda cada caso en resultados/<timestamp>_<split>.jsonl.
-# │ Uso:     python -m src.eval --split adversarial
+# │ Uso:     python -m evals.runner --split adversarial
 # │ Claves:  eval, split, versiones, resultados, accuracy
 # └──────────────────────────────────────────────────────────────────────────────
 def main() -> None:
