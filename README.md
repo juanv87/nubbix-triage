@@ -174,10 +174,10 @@ Accuracy de categoría con `gpt-4o-mini`, pipeline completo (compuertas de entra
 | `triage_v1` | zero-shot | 90% | 86% | 100% | 80% | 284 | 1.5 s |
 | `triage_v2` | few-shot (3 ejemplos) | 95% | 93% | 100% | 70% | 518 | 1.6 s |
 | `triage_v3` | few-shot + ejemplo de un error real | 100% | 93% | 100% | 70% | 609 | 1.7 s |
-| **`triage_v4`** | few-shot + reglas de seguridad | 90% | — | 90% | **90%** | 606 | 1.9 s |
+| **`triage_v4`** | few-shot + reglas de seguridad | 90% | 93% | 90% | **90%** | 606 | 1.9 s |
 | `triage_v5` | v4 + R7 explícita | 85% | — | 90% | 90% | 613 | 1.6 s |
 
-Fuentes: dev `resultados/20261127_173024_dev.jsonl`; test `resultados/20261120_201818_test.jsonl` (test se corrió una sola vez, antes de v4, para no contaminarlo); adversarial `resultados/20261127_172835_adversarial.jsonl`; adversarial sin compuerta de entrada `resultados/20261126_171428_adversarial.jsonl`. Ningún caso terminó en error de API.
+Fuentes: dev `resultados/20261127_173024_dev.jsonl`; test v1-v3 `resultados/20261120_201818_test.jsonl` (antes de las compuertas y del tool calling) y test v4 `resultados/20261128_071719_test.jsonl` (pipeline actual; v4 se midió en test una sola vez, ya elegida, para confirmar y no para iterar); adversarial `resultados/20261127_172835_adversarial.jsonl`; adversarial sin compuerta de entrada `resultados/20261126_171428_adversarial.jsonl`. Ningún caso terminó en error de API.
 
 Errores que se repiten: NX-007 (cobros de las ventas del cliente duplicados por una integración → `technical`, el modelo dice `billing`) y NX-019 (cobro por cambio de plan → `billing`, v4/v5 dicen `other`). Es la frontera entre R1 y R2, y v3 la cruza con un ejemplo sacado de un error de dev, así que su 100% en dev está sobreajustado: en test empata con v2.
 
@@ -195,6 +195,15 @@ Las mismas versiones y el mismo pipeline, cambiando solo el proveedor (`LLM_PROV
 
 Fuentes: OpenAI `resultados/20261127_173024_dev.jsonl` y `resultados/20261127_172835_adversarial.jsonl`; Gemini `resultados/20261128_070456_dev.jsonl` y `resultados/20261128_071146_adversarial.jsonl`. Ningún caso terminó en error de API ni necesitó reparación.
 
+Confirmación en test (14 casos, solo `triage_v4`, una corrida por proveedor):
+
+| Modelo | test | Costo por caso | Latencia | Único fallo |
+|---|---|---|---|---|
+| `gpt-4o-mini` | 93% (13/14) | $0.00013 | 2.00 s | NX-030 (R6, esperado `account`) → `other` |
+| `gemini-3.5-flash-lite` | 93% (13/14) | $0.00042 | 1.42 s | NX-030 (R6, esperado `account`) → `billing` |
+
+Fuentes: OpenAI `resultados/20261128_071719_test.jsonl`; Gemini `resultados/20261128_071448_test.jsonl`.
+
 Lectura:
 
 - **Calidad:** Gemini resuelve los dos casos de frontera que `gpt-4o-mini` falla (NX-007, NX-019) con todas las versiones. Como todas sacan 100%, dev deja de distinguir prompts con este modelo: sirve para comparar modelos, no para elegir prompt.
@@ -202,7 +211,9 @@ Lectura:
 - **Costo:** Gemini cuesta unas 3.3 veces más por caso. Con v4 y el volumen de Nubbix (~400 tickets/día, ~12.000/mes), son unos USD 1.5/mes con OpenAI contra USD 4.8/mes con Gemini.
 - **Latencia:** Gemini es algo más rápido con v2-v5 (1.2 s contra 1.6-1.9 s).
 
-Decisión actual: `gpt-4o-mini` sigue como principal y Gemini como respaldo (`LLM_FALLBACK_PROVIDER`). La diferencia de costo es chica en valor absoluto, así que invertirlos se justifica si los errores de frontera (R1/R2) pesan más que USD ~3/mes. Falta confirmarlo en test antes de cambiar el default.
+- **Test:** la ventaja de Gemini en dev no se sostiene. Los dos modelos empatan en 93% y fallan el mismo ticket mixto (NX-030), cada uno hacia una categoría distinta. La frontera R6 sigue abierta para ambos.
+
+Decisión: `gpt-4o-mini` como principal y Gemini como respaldo (`LLM_FALLBACK_PROVIDER`). En test dan la misma precisión, y `gpt-4o-mini` cuesta un tercio por caso; la mejora de Gemini en dev no generalizó. Gemini es más rápido, pero 2 s está dentro de lo aceptable para un triage que hoy tarda 9 horas en tener primera respuesta.
 
 ## Context engineering: técnica elegida y por qué
 
@@ -211,7 +222,7 @@ Decisión actual: `gpt-4o-mini` sigue como principal y Gemini como respaldo (`LL
 1. **v1 zero-shot** como línea base: 90% en dev; falla en los bordes ambiguos (R2, R6).
 2. **v2 few-shot** con 3 ejemplos de las reglas ambiguas: sube a 95% dev y 93% test, a +126% de tokens de entrada.
 3. **v3** suma un ejemplo de un error real de dev: arregla NX-007 pero rompe NX-019, y en test no mejora (93%) a +22% de tokens. Descartada.
-4. **v4** = v2 + sección de seguridad (consulta entre `<consulta>`, tratada como dato; nunca prometer reintegros). Las tres anteriores fallaban NX-029 en test (injection que fuerza `billing`). Con el prompt como única defensa, v4 resiste 90% de la suite adversarial contra 70-80% de v1-v3.
+4. **v4** = v2 + sección de seguridad (consulta entre `<consulta>`, tratada como dato; nunca prometer reintegros). Las tres anteriores fallaban NX-029 en test (injection que fuerza `billing`). Con el prompt como única defensa, v4 resiste 90% de la suite adversarial contra 70-80% de v1-v3. Confirmada después en test: 93%, igual que v2 y v3.
 5. **v5** intenta arreglar ADV-006 y no lo logra; además baja en dev. Descartada.
 
 Se eligió v4 aunque pierde un caso en dev frente a v2: el costo es el borde R1/R5 (NX-019), y la ganancia es que el prompt resiste por sí solo cuando un ataque logra pasar las compuertas de código. La guía lo pide explícitamente: un solo guardrail de entrada suele ser fácil de evadir, así que el prompt es la segunda capa. Se cambia con `PROMPT_VERSION`, sin tocar código.
