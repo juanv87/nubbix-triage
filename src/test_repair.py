@@ -1,4 +1,12 @@
 """Repair loop check: python -m src.test_repair (no LLM calls, ask_tool is faked)."""
+import os
+import tempfile
+
+# Must be set before the first log_event call so test runs never touch data/metrics.jsonl.
+fd, METRICS = tempfile.mkstemp(suffix=".jsonl")
+os.close(fd)
+os.environ["METRICS_PATH"] = METRICS
+
 from . import main
 
 LEAK = "LEAK-SECRET-123"
@@ -14,7 +22,7 @@ def run(queue):
         return main.ToolResponse(args=queue.pop(0), provider="openai", model="fake", input_tokens=1, output_tokens=1)
 
     main.ask_tool = fake
-    return main.triage("cobro duplicado"), users
+    return main.triage("cobro duplicado", surface="test"), users
 
 
 (result, calls), users = run([BAD, GOOD])
@@ -31,4 +39,5 @@ try:
     raise AssertionError("expected TriageError")
 except main.TriageError:
     pass
+os.remove(METRICS)
 print("ok")

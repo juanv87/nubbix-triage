@@ -1,4 +1,5 @@
 import json
+import sys
 import os
 
 from dotenv import load_dotenv
@@ -175,9 +176,9 @@ def ask_tool(system, user, temperature, max_output_tokens) -> ToolResponse:
     except API_ERRORS as e:
         if not is_transient(e):
             raise
-        print(f"Error en el llamado a la API de {provider}. {e}")
+        print(f"Error en el llamado a la API de {provider}. {e}", file=sys.stderr)
         try:
-            print(f"Probando con {fallback_provider}: \n")
+            print(f"Probando con {fallback_provider}: \n", file=sys.stderr)
             return PROVIDERS[fallback_provider](system, user, temperature, max_output_tokens)
         except API_ERRORS as e:
             raise RuntimeError(f"Todos los provedores fallaron. {e}") from e

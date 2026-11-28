@@ -147,7 +147,7 @@ def _triage(query: str, version: str | None, info: dict) -> tuple[TriageResponse
     # └────────────────────────────────────────────────────────────────────────────
     if CONTROL.search(query):
         info["input_gate"] = "intento-de-inyeccion"
-        print("Entrada bloqueada por la compuerta: intento-de-inyeccion")
+        print("Entrada bloqueada por la compuerta: intento-de-inyeccion", file=sys.stderr)
         return safe_response("intento-de-inyeccion"), []
     # ┌─ SEG-1.6 · ENTRADA · Moderación de contenido ──────────────────────────────
     # │ Qué:     clasifica la consulta ya sanitizada (sin PII) con OpenAI Moderation
@@ -162,7 +162,7 @@ def _triage(query: str, version: str | None, info: dict) -> tuple[TriageResponse
     info["moderation"] = {"action": action, "severity": severity, "reasons": reasons}
     codes = ",".join(r["code"] for r in reasons)
     if action == "block":
-        print(f"Entrada bloqueada por moderación: {codes}")
+        print(f"Entrada bloqueada por moderación: {codes}", file=sys.stderr)
         return safe_response("moderacion: " + codes), []
     # Etapa 2 · Prompt: render() sanitiza (SEG-1.2..1.5) y arma system/user (SEG-2.x).
     system, base_user = render(prompt, query)
@@ -204,7 +204,7 @@ def _triage(query: str, version: str | None, info: dict) -> tuple[TriageResponse
             reason = check_output(result, system)
             if reason:
                 info["output_gate"] = reason
-                print(f"Salida bloqueada por la compuerta: {reason}")
+                print(f"Salida bloqueada por la compuerta: {reason}", file=sys.stderr)
                 result = safe_response(reason)
             if action == "flag":
                 # SEG-1.6 (flag): se agrega después de la compuerta; es texto nuestro, no del modelo.
@@ -228,17 +228,24 @@ def _triage(query: str, version: str | None, info: dict) -> tuple[TriageResponse
                 f"Tu respuesta anterior no pasó la validación:\n{err}\n\n"
                 "Llama la herramienta de nuevo con argumentos corregidos."
             )
-            print(f"Error en el intento {attempt + 1}: {err}")
+            print(f"Error en el intento {attempt + 1}: {err}", file=sys.stderr)
     raise TriageError(
         f"Se alcanzó el número máximo de intentos ({max_attempts}) sin obtener una respuesta válida."
     )
     
 def main() -> None:
+    # Windows redirects stdout as cp1252; keep the JSON readable UTF-8.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     info: dict = {}
     try:
         response, _ = triage(sys.argv[1], info=info)
-    finally:
-        print(f"request_id: {info['request_id']}", file=sys.stderr)
+    except Exception as e:
+        # Metrics are already logged in triage()'s finally; just fail cleanly, no traceback.
+        print(f"Error: {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"request_id: {info.get('request_id')}", file=sys.stderr)
+        sys.exit(1)
+    print(f"request_id: {info['request_id']}", file=sys.stderr)
     print(response.model_dump_json(indent=2))
 
 if __name__ == "__main__":
