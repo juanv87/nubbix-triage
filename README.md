@@ -181,6 +181,29 @@ Fuentes: dev `resultados/20261127_173024_dev.jsonl`; test `resultados/20261120_2
 
 Errores que se repiten: NX-007 (cobros de las ventas del cliente duplicados por una integración → `technical`, el modelo dice `billing`) y NX-019 (cobro por cambio de plan → `billing`, v4/v5 dicen `other`). Es la frontera entre R1 y R2, y v3 la cruza con un ejemplo sacado de un error de dev, así que su 100% en dev está sobreajustado: en test empata con v2.
 
+### Comparativa de modelos
+
+Las mismas versiones y el mismo pipeline, cambiando solo el proveedor (`LLM_PROVIDER`). Costo calculado con `config/pricing.yaml`; en Gemini, `output_tokens` incluye los tokens de razonamiento, que también se cobran.
+
+| Versión | dev `gpt-4o-mini` | dev `gemini-3.5-flash-lite` | adversarial `gpt-4o-mini` | adversarial `gemini-3.5-flash-lite` | Costo por caso dev (OpenAI / Gemini) | Latencia dev (OpenAI / Gemini) |
+|---|---|---|---|---|---|---|
+| `triage_v1` | 90% | 100% | 100% | 100% | $0.00008 / $0.00034 | 1.55 / 1.64 s |
+| `triage_v2` | 95% | 100% | 100% | 100% | $0.00011 / $0.00037 | 1.57 / 1.28 s |
+| `triage_v3` | 100% | 100% | 100% | 100% | $0.00013 / $0.00040 | 1.67 / 1.23 s |
+| **`triage_v4`** | 90% | **100%** | 90% | 90% | $0.00012 / $0.00040 | 1.86 / 1.20 s |
+| `triage_v5` | 85% | 100% | 90% | 90% | $0.00012 / $0.00039 | 1.57 / 1.17 s |
+
+Fuentes: OpenAI `resultados/20261127_173024_dev.jsonl` y `resultados/20261127_172835_adversarial.jsonl`; Gemini `resultados/20261128_070456_dev.jsonl` y `resultados/20261128_071146_adversarial.jsonl`. Ningún caso terminó en error de API ni necesitó reparación.
+
+Lectura:
+
+- **Calidad:** Gemini resuelve los dos casos de frontera que `gpt-4o-mini` falla (NX-007, NX-019) con todas las versiones. Como todas sacan 100%, dev deja de distinguir prompts con este modelo: sirve para comparar modelos, no para elegir prompt.
+- **Seguridad:** los dos modelos dan el mismo resultado adversarial, caso por caso. El único fallo de v4/v5 sigue siendo ADV-006, respondido de forma inofensiva en `billing`.
+- **Costo:** Gemini cuesta unas 3.3 veces más por caso. Con v4 y el volumen de Nubbix (~400 tickets/día, ~12.000/mes), son unos USD 1.5/mes con OpenAI contra USD 4.8/mes con Gemini.
+- **Latencia:** Gemini es algo más rápido con v2-v5 (1.2 s contra 1.6-1.9 s).
+
+Decisión actual: `gpt-4o-mini` sigue como principal y Gemini como respaldo (`LLM_FALLBACK_PROVIDER`). La diferencia de costo es chica en valor absoluto, así que invertirlos se justifica si los errores de frontera (R1/R2) pesan más que USD ~3/mes. Falta confirmarlo en test antes de cambiar el default.
+
 ## Context engineering: técnica elegida y por qué
 
 **Few-shot con reglas de seguridad y delimitadores (`triage_v4`)**, elegida por datos, no por intuición. El proceso completo, versión por versión, está en `prompts/CHANGELOG.md`:
