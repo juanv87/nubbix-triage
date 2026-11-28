@@ -9,6 +9,13 @@ CATEGORIES = {
     "other": "todo lo demás (consultas comerciales, planes, descuentos, comentarios).",
 }
 
+# ┌─ SEG-4.1 · VALIDACIÓN · Contrato Pydantic ───────────────────────────────────
+# │ Qué:     el contrato de la respuesta: answer no vacío, confidence entre 0 y 1,
+# │          category cerrada a las claves de CATEGORIES, actions como lista.
+# │ Fuente única: este modelo genera el esquema del tool calling (SEG-3.2) y
+# │          valida la respuesta en main._triage.
+# │ Claves:  TriageResponse, contrato, schema, categorías
+# └──────────────────────────────────────────────────────────────────────────────
 class TriageResponse(BaseModel):
     answer: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)

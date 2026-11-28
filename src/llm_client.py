@@ -15,8 +15,14 @@ from src.schemas import ToolResponse, TriageResponse
 
 load_dotenv()
 
-# Transport layer: the SDKs retry transient errors (408/429/5xx/timeout/connection)
-# with exponential backoff. LLM_HTTP_MAX_RETRIES counts retries, not total attempts.
+# ┌─ SEG-3.3 · INFERENCIA · Timeout y reintentos (capa de transporte) ───────────
+# │ Qué:     los SDK reintentan errores transitorios (408/429/5xx/timeout/conexión)
+# │          con backoff exponencial y cortan cada llamada a los LLM_TIMEOUT segundos.
+# │ Ojo:     LLM_HTTP_MAX_RETRIES cuenta REINTENTOS; Gemini cuenta intentos totales
+# │          (por eso el +1 abajo).
+# │ Ver:     ask_tool() (fallback de proveedor, misma SEG-3.3)
+# │ Claves:  timeout, reintentos, retries, backoff, LLM_TIMEOUT
+# └──────────────────────────────────────────────────────────────────────────────
 TIMEOUT_S = float(os.getenv("LLM_TIMEOUT", 20))
 HTTP_MAX_RETRIES = int(os.getenv("LLM_HTTP_MAX_RETRIES", 2))
 
@@ -34,8 +40,16 @@ MODELS = {
     "openai": os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 }
 
+# ┌─ SEG-3.2 · INFERENCIA · Tool calling forzado ────────────────────────────────
+# │ Qué:     el modelo está obligado a llamar a la herramienta clasificar_consulta;
+# │          no puede responder texto libre.
+# │          OpenAI: tool_choice con la función nombrada (ask_tool_openai).
+# │          Gemini: FunctionCallingConfigMode.ANY + allowed_function_names.
+# │ Fuente única: el esquema sale del contrato Pydantic (SEG-4.1), así lo que se
+# │          le exige al modelo y lo que se valida después nunca se desalinean.
+# │ Claves:  tool calling, function calling, tool_choice, TOOL_SCHEMA
+# └──────────────────────────────────────────────────────────────────────────────
 TOOL_NAME = "clasificar_consulta"
-# Single source of truth: the Pydantic contract generates the schema forced on the model.
 TOOL_SCHEMA = TriageResponse.model_json_schema()
 
 
@@ -47,6 +61,7 @@ def ask_tool_gemini(system, user, temperature, max_output_tokens) -> ToolRespons
         model=MODELS["gemini"],
         contents=user,
         config=types.GenerateContentConfig(
+            # SEG-3.1 · INFERENCIA · Roles: en Gemini las reglas van como system_instruction.
             system_instruction=system,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
@@ -85,6 +100,12 @@ def ask_tool_openai(system, user, temperature, max_output_tokens) -> ToolRespons
     """
     response = client_openai.chat.completions.create(
         model=MODELS["openai"],
+        # ┌─ SEG-3.1 · INFERENCIA · Roles system / user ───────────────────────────
+        # │ Qué:     las reglas viajan con role "system" y la consulta con role "user".
+        # │ Por qué: el modelo prioriza el rol system; el texto del cliente nunca se
+        # │          mezcla con las reglas en un mismo mensaje (ver SEG-2.3).
+        # │ Claves:  roles, system, user, messages
+        # └────────────────────────────────────────────────────────────────────────
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -135,6 +156,13 @@ def is_transient(e: Exception) -> bool:
     return isinstance(status, int) and (status in TRANSIENT_STATUS or status >= 500)
 
 
+# ┌─ SEG-3.3 · INFERENCIA · Fallback de proveedor ───────────────────────────────
+# │ Qué:     llama al proveedor principal (LLM_PROVIDER) y, si falla con un error
+# │          TRANSITORIO (is_transient: red, 429, 5xx), prueba con LLM_FALLBACK_PROVIDER.
+# │ Por qué: errores de configuración (400/401/403/404) se propagan tal cual; si
+# │          el fallback los tapara, una API key rota pasaría desapercibida.
+# │ Claves:  fallback, proveedor, provider, is_transient, ask_tool
+# └──────────────────────────────────────────────────────────────────────────────
 def ask_tool(system, user, temperature, max_output_tokens) -> ToolResponse:
     """Forces the TriageResponse tool call; .args is a normalized dict (or None if parsing failed)."""
     provider = os.getenv("LLM_PROVIDER", "openai")

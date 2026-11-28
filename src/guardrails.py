@@ -4,11 +4,28 @@ import re
 import yaml
 from pathlib import Path
 
+# ┌─ SEG-5.2 · COMPUERTA · Promesas prohibidas ──────────────────────────────────
+# │ Qué:     detecta en la salida del modelo promesas que el soporte no puede
+# │          garantizar: reintegro aprobado/acreditado, "20% de descuento", cupones.
+# │ Por qué: refuerza en código la regla R7 del prompt (SEG-2.2); el modelo puede
+# │          desobedecerla, esta regex no.
+# │ Sale:    motivo "promesa-prohibida".
+# │ Claves:  promesa, reintegro, reembolso, descuento, cupón, PROMISE
+# └──────────────────────────────────────────────────────────────────────────────
 PROMISE = re.compile(
     r"(reintegro|reembolso|devoluci[oó]n|refund)\s+(\S+\s+){0,3}?(ya\s+)?(fue|est[aá]|ha\s+sido|was|has\s+been)\s+(aprobad|confirmad|acreditad|approved)"    r"|\d{1,3}\s*%\s*(de\s+)?(descuento|reintegro|reembolso)"
     r"|cup[oó]n",
     re.IGNORECASE,
 )
+# ┌─ SEG-5.3 · COMPUERTA · Eco de frases de control (+ usada en SEG-1.1) ────────
+# │ Qué:     frases típicas de inyección: "ignorá/olvidá las instrucciones",
+# │          "ignore previous", "modo debug/desarrollador", "jailbreak",
+# │          "sin restricciones", "SYSTEM:".
+# │ Doble uso: en la ENTRADA (SEG-1.1) frena la consulta antes del LLM; en la
+# │          SALIDA detecta que el modelo repitió o "aceptó" la inyección.
+# │ Sale:    motivo "eco-de-control" (salida) / "intento-de-inyeccion" (entrada).
+# │ Claves:  CONTROL, inyección, jailbreak, modo debug, eco
+# └──────────────────────────────────────────────────────────────────────────────
 CONTROL = re.compile(
     r"(ignor|olvid)\w*\s+(\w+\s+){0,3}(instrucciones|indicaciones|reglas|instructions|rules)"
     r"|ignore\s+previous"
@@ -21,6 +38,15 @@ CONTROL = re.compile(
 def words(text: str) -> list[str]:
     return re.findall(r"\w+", text.lower())
 
+# ┌─ SEG-5.4 · COMPUERTA · Fuga literal del system ──────────────────────────────
+# │ Qué:     True si aparecen 8 palabras seguidas de las reglas del system en la
+# │          salida (comparación por ventanas, sin mayúsculas ni puntuación).
+# │ Excepción: las respuestas few-shot y la línea del formato JSON se pueden
+# │          repetir: son ejemplos de salida, no reglas secretas.
+# │ Límite:  no detecta una fuga traducida o parafraseada (SEG-5.7, ADV-010).
+# │ Sale:    motivo "fuga-de-system".
+# │ Claves:  fuga, leak, system prompt, leaks_system, ventanas
+# └──────────────────────────────────────────────────────────────────────────────
 def leaks_system(text: str, system: str, n: int = 8) -> bool:
     """True if n consecutive words of the system's rules appear in text."""
     # Few-shot answers and the JSON format line are allowed to be echoed.
@@ -30,6 +56,16 @@ def leaks_system(text: str, system: str, n: int = 8) -> bool:
     padded = f" {' '.join(words(text))} "
     return any(f" {win} " in padded for win in windows)
 
+# ┌─ SEG-5.5 · COMPUERTA · Orden de los chequeos ────────────────────────────────
+# │ Qué:     revisa answer + actions y devuelve el PRIMER motivo que encuentra,
+# │          o None si la salida es segura. Orden: SEG-5.2 → SEG-5.3 → SEG-5.4.
+# │ Lo llama: main._triage (SEG-5.1).
+# ├─ SEG-5.7 · COMPUERTA · PII en salida y fuga por traducción ── ESTADO: FALTA ──
+# │ Irían acá como chequeos nuevos. La entrada ya enmascara PII (SEG-1.5), pero
+# │ el modelo podría escribir datos personales; la fuga traducida no comparte
+# │ palabras con el system y necesita un clasificador semántico.
+# │ Claves:  check_output, compuerta de salida, output gate, motivo
+# └──────────────────────────────────────────────────────────────────────────────
 def check_output(response: TriageResponse, system: str) -> str | None:
     """Return the block reason, or None if the output is safe."""
     text = " ".join([response.answer, *response.actions])
@@ -45,6 +81,14 @@ def check_output(response: TriageResponse, system: str) -> str | None:
 
     return None
 
+# ┌─ SEG-5.6 · COMPUERTA · Respuesta de reemplazo ───────────────────────────────
+# │ Qué:     respuesta armada por NUESTRO código, no por el modelo: answer fijo,
+# │          category "other", confidence 0 y el motivo en actions → revisión humana.
+# │ Por qué: de una salida bloqueada no se confía en ningún campo.
+# │ La usan: las dos compuertas (SEG-1.1, SEG-1.6 block y SEG-5.1). Debe pasar
+# │          su propia compuerta (lo verifica el self-check de abajo).
+# │ Claves:  safe_response, reemplazo, fallback seguro, revisión humana
+# └──────────────────────────────────────────────────────────────────────────────
 SAFE_ANSWER = "Recibimos tu consulta. Un agente la va a revisar y te responde a la brevedad."
 
 def safe_response(reason: str) -> TriageResponse:
@@ -56,12 +100,27 @@ def safe_response(reason: str) -> TriageResponse:
         actions=[f"Revisión humana: salida bloqueada ({reason})"],
     )
 
+# ┌─ SEG-4.2 · VALIDACIÓN · Resumen del error sin valores rechazados ────────────
+# │ Qué:     deja solo "campo: regla violada" (p. ej. "category: Input should be...").
+# │ Por qué: los valores rechazados los escribió el modelo; si vuelven al prompt
+# │          o al log sin pasar la compuerta, una inyección podría colarse por ahí.
+# │ Lo usa:  main._triage en el loop de reparación.
+# │ Claves:  error_summary, reparación, sin eco, ValidationError
+# └──────────────────────────────────────────────────────────────────────────────
 def error_summary(e: Exception) -> str:
     """Validation error without the rejected values: those come from the model and must not be echoed or logged."""
     if isinstance(e, ValidationError):
         return "; ".join(f"{'.'.join(map(str, x['loc']))}: {x['msg']}" for x in e.errors())
     return str(e)
 
+# ┌─ SEG-1.6 · ENTRADA · Moderación: motor de umbrales ──────────────────────────
+# │ load_thresholds(): carga config/moderation.yaml y falla al importar si está
+# │          mal formado (falta default, allow > block, valores fuera de 0..1).
+# │ decide(): función pura. Por categoría: score >= block → block; >= allow → flag.
+# │          Gana la peor categoría; severity low / medium / high.
+# │ Lo usa:  moderation.moderate.
+# │ Claves:  umbrales, thresholds, decide, bandas, severity, moderation.yaml
+# └──────────────────────────────────────────────────────────────────────────────
 THRESHOLDS_PATH = Path(__file__).parent.parent / "config" / "moderation.yaml"
 _RANK = {"allow": 0, "flag": 1, "block": 2}
 _SEVERITY = {"allow": "low", "flag": "medium", "block": "high"}

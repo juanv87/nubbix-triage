@@ -27,6 +27,14 @@ def moderate_mock(text: str) -> dict[str, float]:
 
 _PROVIDERS = {"openai": moderate_openai, "mock": moderate_mock}
 
+# ┌─ SEG-1.6 · ENTRADA · Moderación de contenido: moderate() ────────────────────
+# │ Qué:     obtiene scores por categoría del proveedor (MODERATION_PROVIDER:
+# │          openai | mock | off) y los pasa a guardrails.decide (umbrales).
+# │ Fail-closed: si el clasificador falla, NUNCA devuelve allow: devuelve flag
+# │          con "moderation_unavailable" y solo el nombre de la excepción.
+# │ Devuelve: (action, reasons, severity). Lo llama main._triage.
+# │ Claves:  moderate, moderación, fail-closed, MODERATION_PROVIDER, omni-moderation
+# └──────────────────────────────────────────────────────────────────────────────
 def moderate(text: str) -> tuple[str, list[dict], str]:
     provider = os.getenv("MODERATION_PROVIDER", "openai")
     if provider == "off":
